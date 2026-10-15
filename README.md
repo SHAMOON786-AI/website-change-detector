@@ -14,17 +14,19 @@ The link for the website is:- https://washday-other-resend.ngrok-free.dev
 | **Noise filtering** | Strips timestamps, counters, ads, random tokens before hashing |
 | **Sensitivity threshold** | Min characters changed before triggering an alert |
 | **Watch / Ignore selectors** | Scope monitoring to specific CSS regions, exclude noise elements |
-| **Visual Selector Picker** | Click-to-pick CSS selectors from an embedded iframe |
+| **Visual Selector Proxy** | Interactive click-to-pick CSS selector inspector bypassing CSP (`/api/proxy`) |
 | **Text diff** | Coloured `[+]` / `[-]` line diffs via `diffLines` |
-| **Screenshot diff** | Pixel-level diff images via Jimp |
+| **Screenshot diff** | Pixel-level diff images via Jimp + interactive Before/After wipe comparison slider |
 | **CAPTCHA / block detection** | Automatically flags blocked sites as `BLOCKED` |
-| **Multi-channel alerts** | Email (Gmail), Telegram Bot, Discord Webhook |
+| **Multi-channel alerts** | Email (Gmail), Telegram Bot, Discord, Slack, and Generic Webhooks |
+| **Instant Alert Testing** | In-app 1-click test notifications for all alert channels |
 | **Alert deduplication** | 30-minute cooldown between repeat alerts |
-| **Daily digest** | Morning summary email/Telegram/Discord at 8 AM |
+| **Daily digest** | Morning summary email/Telegram/Discord/Webhook at 8 AM |
 | **Pause / Resume** | Suspend monitoring for any site without deleting it |
+| **Site Settings Editor** | Inline editing of intervals, selectors, alerts, and keywords without re-adding |
 | **Version timeline** | Up to 50 history entries per site with screenshots |
-| **Diff viewer modal** | Side-by-side text and screenshot comparison |
-| **Export / Import** | Full JSON backup and restore |
+| **Diff viewer modal** | Side-by-side text, screenshot wipe comparison slider, and pixel diff |
+| **Export / Import** | Full JSON backup and restore + CSV spreadsheet exports for sites & history |
 | **Dashboard search** | Real-time filter by site name or URL |
 | **🤖 AI One-Line Summaries** | Automatic 1-sentence synopsis of what changed (Gemini / NLP) |
 | **🎯 Keyword-Only Alerts** | Alert only when specific keywords/terms appear in the diff |
@@ -163,8 +165,11 @@ website-change-detector/
 | `GET` | `/api/sites/:id/metrics` | Retrieve numeric / price tracking history for charts |
 | `GET` | `/api/sites/:id/rss` | RSS 2.0 XML feed for this site |
 | `GET` | `/api/rss` | Aggregated RSS 2.0 XML feed across all sites |
-| `GET` | `/api/queue` | View current job queue |
+| `GET` | `/api/proxy` | Server proxy with injected interactive visual selector inspector |
+| `POST` | `/api/test-alert` | Test notifications for Email, Telegram, Discord, or Webhooks |
 | `GET` | `/api/export` | Download full JSON backup |
+| `GET` | `/api/export/csv` | Download CSV spreadsheet of all monitored sites |
+| `GET` | `/api/sites/:id/export/csv` | Download CSV spreadsheet of an individual site's history |
 | `POST` | `/api/import` | Import sites from backup |
 
 ---

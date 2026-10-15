@@ -345,6 +345,44 @@
             font-weight: 700;
             margin-left: 6px;
         }
+        /* ── Comparison Slider ── */
+        .slider-wrapper {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            user-select: none;
+            background: #000;
+        }
+        .slider-wrapper img {
+            width: 100%;
+            display: block;
+            pointer-events: none;
+        }
+        .slider-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            overflow: hidden;
+            width: 50%;
+            border-right: 2px solid var(--accent);
+            box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+        }
+        .slider-overlay img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: auto;
+            max-width: none;
+        }
+        .slider-range {
+            width: 100%;
+            margin-top: 10px;
+            cursor: pointer;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -354,6 +392,7 @@
     <div class="logo">🔍 Website<span>Watch</span></div>
     <div class="nav-btns">
         <a href="/api/rss" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📡 RSS</a>
+        <a href="/api/export/csv" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📊 CSV</a>
         <button class="btn btn-secondary btn-sm" onclick="exportSites()">⬇ Export</button>
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
             ⬆ Import
@@ -388,7 +427,7 @@
 
     <!-- Add site panel (hidden by default) -->
     <div class="panel" id="add-panel" style="display:none">
-        <div class="panel-title">📡 Add / Update Monitored Site</div>
+        <div class="panel-title" id="add-panel-title">📡 Add / Update Monitored Site</div>
         <div class="form-grid">
             <div class="form-group">
                 <label>Site Name</label>
@@ -420,7 +459,10 @@
             </div>
             <div class="form-group full">
                 <label>Email for alerts (optional)</label>
-                <input type="email" id="f-email" placeholder="you@example.com">
+                <div style="display:flex;gap:8px">
+                    <input type="email" id="f-email" placeholder="you@example.com" style="flex:1">
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="testAlertChannel('email')">🧪 Test</button>
+                </div>
             </div>
             <div class="form-group full">
                 <label>Keyword-Only Alerts (optional — comma-separated; alerts trigger ONLY if diff contains these words)</label>
@@ -429,7 +471,7 @@
 
             <!-- Advanced: alerts section -->
             <div class="form-group full">
-                <div class="collapsible-header" onclick="toggleCollapse(this)">Alert Integrations (Telegram / Discord)</div>
+                <div class="collapsible-header" onclick="toggleCollapse(this)">Alert Integrations (Telegram / Discord / Slack / Webhooks)</div>
                 <div class="collapsible-body">
                     <div class="form-grid" style="margin-top:10px">
                         <div class="form-group">
@@ -438,11 +480,24 @@
                         </div>
                         <div class="form-group">
                             <label>Telegram Chat ID</label>
-                            <input type="text" id="f-tg-chat" placeholder="-100123456789">
+                            <div style="display:flex;gap:8px">
+                                <input type="text" id="f-tg-chat" placeholder="-100123456789" style="flex:1">
+                                <button class="btn btn-secondary btn-sm" type="button" onclick="testAlertChannel('telegram')">🧪 Test</button>
+                            </div>
                         </div>
                         <div class="form-group full">
                             <label>Discord Webhook URL</label>
-                            <input type="url" id="f-discord" placeholder="https://discord.com/api/webhooks/...">
+                            <div style="display:flex;gap:8px">
+                                <input type="url" id="f-discord" placeholder="https://discord.com/api/webhooks/..." style="flex:1">
+                                <button class="btn btn-secondary btn-sm" type="button" onclick="testAlertChannel('discord')">🧪 Test</button>
+                            </div>
+                        </div>
+                        <div class="form-group full">
+                            <label>Slack / Custom Webhook URL (JSON payload or Slack incoming webhook)</label>
+                            <div style="display:flex;gap:8px">
+                                <input type="url" id="f-webhook" placeholder="https://hooks.slack.com/services/... or https://domain.com/webhook" style="flex:1">
+                                <button class="btn btn-secondary btn-sm" type="button" onclick="testAlertChannel('webhook')">🧪 Test</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -473,8 +528,8 @@
             </div>
 
             <div class="form-group full" style="display:flex;gap:10px;justify-content:flex-end">
-                <button class="btn btn-secondary" onclick="toggleAddPanel()">Cancel</button>
-                <button class="btn btn-primary" onclick="submitTrack()">🚀 Start Monitoring</button>
+                <button class="btn btn-secondary" onclick="cancelEditForm()">Cancel</button>
+                <button class="btn btn-primary" id="f-submit-btn" onclick="submitTrack()">🚀 Start Monitoring</button>
             </div>
         </div>
     </div>
@@ -515,7 +570,7 @@
 
 <!-- Diff viewer modal -->
 <div class="modal-overlay" id="diff-modal">
-    <div class="modal">
+    <div class="modal" style="max-width:960px;width:95%">
         <div class="modal-header">
             <h3>🔀 Version Diff Viewer</h3>
             <button class="modal-close" onclick="closeDiffModal()">✕</button>
@@ -535,15 +590,15 @@
         </div>
         <div class="modal-body">
             <p style="color:var(--muted);font-size:13px;margin-bottom:10px">
-                Enter the URL to load in the picker, then click on any element to capture its CSS selector.
+                Enter target URL to load the interactive visual inspector. Hover over any element to see its selector, and click to automatically choose it.
             </p>
             <div style="display:flex;gap:8px;margin-bottom:12px">
                 <input type="url" id="picker-url-input" placeholder="https://example.com" style="flex:1">
-                <button class="btn btn-primary" onclick="loadPickerFrame()">Load Page</button>
+                <button class="btn btn-primary" onclick="loadPickerFrame()">Load Page Inspector</button>
             </div>
-            <iframe id="picker-iframe" class="picker-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+            <iframe id="picker-iframe" class="picker-frame"></iframe>
             <p style="color:var(--muted);font-size:12px;margin-top:8px" id="picker-note">
-                ⚠️ Cross-origin pages may block iframe loading due to browser security. Use the selector input manually for those sites.
+                💡 Powered by server-side proxy inspector: strips CSP restrictions and highlights elements with a single click.
             </p>
             <div style="margin-top:12px;display:flex;align-items:center;gap:10px">
                 <input type="text" id="picker-result" placeholder="Click an element above, or type a selector" style="flex:1">
@@ -669,6 +724,7 @@ function renderTable(sites) {
                         <button class="btn btn-secondary btn-sm" onclick="togglePause('${s.id}')" title="${s.paused ? 'Resume monitoring' : 'Pause monitoring'}">
                             ${s.paused ? '▶ Resume' : '⏸ Pause'}
                         </button>
+                        <button class="btn btn-secondary btn-sm" onclick="editSite('${s.id}')" title="Edit site settings">✏️ Edit</button>
                         <button class="btn btn-secondary btn-sm" onclick="openMetricsChart('${s.id}', '${escAttr(s.name||s.url)}')">📈 Chart</button>
                         <a href="/api/sites/${s.id}/rss" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none" title="Site RSS Feed">📡 RSS</a>
                         <button class="btn btn-blue btn-sm" onclick="toggleHistory('${s.id}')">
@@ -683,7 +739,10 @@ function renderTable(sites) {
             rows.push(`<tr class="history-row" id="hr-${s.id}">
                 <td colspan="6">
                     <div class="history-inner">
-                        <div style="font-size:13px;font-weight:700;margin-top:14px">Version Timeline</div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;margin-bottom:8px">
+                            <div style="font-size:13px;font-weight:700">Version Timeline</div>
+                            <a href="/api/sites/${s.id}/export/csv" class="btn btn-secondary btn-sm" style="text-decoration:none">📊 Export Timeline (CSV)</a>
+                        </div>
                         ${renderTimeline(s)}
                     </div>
                 </td>
@@ -749,10 +808,82 @@ function toggleHistory(id) {
     renderTable(sites);
 }
 
-// ── Add site form ──────────────────────────────────────────────────────────
+// ── Add / Edit site form ───────────────────────────────────────────────────
+let editingSiteId = null;
+
 function toggleAddPanel() {
     const p = document.getElementById('add-panel');
-    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+    const isOpening = p.style.display === 'none';
+    p.style.display = isOpening ? 'block' : 'none';
+    if (!isOpening && editingSiteId) {
+        cancelEditForm();
+    }
+}
+
+function cancelEditForm() {
+    resetForm();
+    document.getElementById('add-panel').style.display = 'none';
+}
+
+function editSite(id) {
+    const s = sites.find(x => x.id === id);
+    if (!s) return;
+    editingSiteId = id;
+    document.getElementById('add-panel-title').textContent = '✏️ Edit Monitored Site';
+    document.getElementById('f-submit-btn').textContent = '💾 Update Site';
+    document.getElementById('f-name').value = s.name || '';
+    document.getElementById('f-url').value = s.url || '';
+    document.getElementById('f-interval').value = s.intervalMs || '3600000';
+    document.getElementById('f-sensitivity').value = s.sensitivity || 20;
+    document.getElementById('f-sens-val').textContent = s.sensitivity || 20;
+    document.getElementById('f-email').value = s.email || '';
+    document.getElementById('f-keywords').value = (s.keywords || []).join(', ');
+    document.getElementById('f-tg-token').value = s.telegramToken || '';
+    document.getElementById('f-tg-chat').value = s.telegramChatId || '';
+    document.getElementById('f-discord').value = s.discordWebhook || '';
+    document.getElementById('f-webhook').value = s.webhookUrl || '';
+
+    watchSelectors = [...(s.watchSelectors || [])];
+    ignoreSelectors = [...(s.ignoreSelectors || [])];
+    renderSelectorTags();
+
+    // Open collapsibles if populated
+    if (s.telegramToken || s.telegramChatId || s.discordWebhook || s.webhookUrl) {
+        document.querySelectorAll('.collapsible-header').forEach(h => {
+            if (h.textContent.includes('Alert') && !h.classList.contains('open')) toggleCollapse(h);
+        });
+    }
+    if (watchSelectors.length || ignoreSelectors.length) {
+        document.querySelectorAll('.collapsible-header').forEach(h => {
+            if (h.textContent.includes('Regions') && !h.classList.contains('open')) toggleCollapse(h);
+        });
+    }
+
+    const panel = document.getElementById('add-panel');
+    panel.style.display = 'block';
+    panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+async function testAlertChannel(type) {
+    const payload = {
+        type,
+        email: document.getElementById('f-email').value.trim(),
+        telegramToken: document.getElementById('f-tg-token').value.trim(),
+        telegramChatId: document.getElementById('f-tg-chat').value.trim(),
+        discordWebhook: document.getElementById('f-discord').value.trim(),
+        webhookUrl: document.getElementById('f-webhook').value.trim()
+    };
+    try {
+        toast(`Testing ${type} notification channel...`, 'info');
+        const res = await api('POST', '/api/test-alert', payload);
+        if (res.success) {
+            toast(res.message, 'success');
+        } else {
+            toast('Failed: ' + (res.error || 'Check credentials'), 'error');
+        }
+    } catch (e) {
+        toast('Test failed: ' + e.message, 'error');
+    }
 }
 
 async function submitTrack() {
@@ -760,6 +891,7 @@ async function submitTrack() {
     if (!url) { toast('URL is required', 'error'); return; }
 
     const payload = {
+        id:              editingSiteId || undefined,
         url,
         name:            document.getElementById('f-name').value.trim(),
         intervalMs:      Number(document.getElementById('f-interval').value),
@@ -769,21 +901,23 @@ async function submitTrack() {
         telegramToken:   document.getElementById('f-tg-token').value.trim(),
         telegramChatId:  document.getElementById('f-tg-chat').value.trim(),
         discordWebhook:  document.getElementById('f-discord').value.trim(),
+        webhookUrl:      document.getElementById('f-webhook').value.trim(),
         watchSelectors,
         ignoreSelectors
     };
 
-    const btn = event.target;
+    const btn = document.getElementById('f-submit-btn');
+    const origText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = 'Queuing…';
+    btn.textContent = 'Saving…';
 
     try {
         const r = await api('POST', '/api/track', payload);
         if (r.success) {
             toast(r.message, 'success');
-            toggleAddPanel();
             resetForm();
-            setTimeout(loadSites, 2000);
+            document.getElementById('add-panel').style.display = 'none';
+            setTimeout(loadSites, 1500);
         } else {
             toast('Error: ' + r.error, 'error');
         }
@@ -791,18 +925,21 @@ async function submitTrack() {
         toast('Network error: ' + e.message, 'error');
     } finally {
         btn.disabled = false;
-        btn.textContent = '🚀 Start Monitoring';
+        btn.textContent = origText;
     }
 }
 
 function resetForm() {
-    ['f-name','f-url','f-email','f-keywords','f-tg-token','f-tg-chat','f-discord'].forEach(id => {
+    ['f-name','f-url','f-email','f-keywords','f-tg-token','f-tg-chat','f-discord','f-webhook'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
     document.getElementById('f-interval').value = '3600000';
     document.getElementById('f-sensitivity').value = '20';
     document.getElementById('f-sens-val').textContent = '20';
+    document.getElementById('add-panel-title').textContent = '📡 Add / Update Monitored Site';
+    document.getElementById('f-submit-btn').textContent = '🚀 Start Monitoring';
+    editingSiteId = null;
     watchSelectors  = [];
     ignoreSelectors = [];
     renderSelectorTags();
@@ -855,10 +992,9 @@ function closePickerModal() {
 function loadPickerFrame() {
     const url = document.getElementById('picker-url-input').value.trim();
     if (!url) { toast('Enter a URL first', 'error'); return; }
-    // Use a proxy-like approach via server — note cross-origin limits
-    document.getElementById('picker-iframe').src = url;
+    document.getElementById('picker-iframe').src = '/api/proxy?url=' + encodeURIComponent(url);
     document.getElementById('picker-result').value = '';
-    toast('Page loading — click any element to pick its selector.', 'info');
+    toast('Loading interactive visual inspector preview...', 'info');
 }
 
 // Listen for selector messages from the iframe
@@ -881,7 +1017,42 @@ function confirmPickerSelector() {
     toast(`Selector added to ${pickerMode} list`, 'success');
 }
 
-// ── Diff viewer modal ──────────────────────────────────────────────────────
+// ── Diff viewer modal & comparison slider ──────────────────────────────────
+function switchDiffTab(mode) {
+    const side = document.getElementById('diff-side-view');
+    const slider = document.getElementById('diff-slider-view');
+    const pixel = document.getElementById('diff-pixel-view');
+    const btnSide = document.getElementById('tab-btn-side');
+    const btnSlider = document.getElementById('tab-btn-slider');
+    const btnPixel = document.getElementById('tab-btn-pixel');
+
+    if (side) side.style.display = mode === 'side' ? 'block' : 'none';
+    if (slider) slider.style.display = mode === 'slider' ? 'block' : 'none';
+    if (pixel) pixel.style.display = mode === 'pixel' ? 'block' : 'none';
+
+    if (btnSide) btnSide.className = mode === 'side' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    if (btnSlider) btnSlider.className = mode === 'slider' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    if (btnPixel) btnPixel.className = mode === 'pixel' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+
+    if (mode === 'slider') {
+        setTimeout(() => updateDiffSlider(50), 50);
+    }
+}
+
+function updateDiffSlider(val) {
+    const overlay = document.getElementById('slider-overlay-el');
+    const img = document.getElementById('slider-overlay-img');
+    const wrapper = document.getElementById('slider-wrapper-el');
+    if (!overlay || !wrapper) return;
+    overlay.style.width = val + '%';
+    if (img) img.style.width = wrapper.clientWidth + 'px';
+}
+
+window.addEventListener('resize', () => {
+    const range = document.querySelector('.slider-range');
+    if (range) updateDiffSlider(range.value);
+});
+
 async function openDiffModal(siteId, vidA, vidB) {
     const r = await api('POST', `/api/sites/${siteId}/compare`, { vidA, vidB });
     if (r.error) { toast('Compare error: ' + r.error, 'error'); return; }
@@ -894,22 +1065,45 @@ async function openDiffModal(siteId, vidA, vidB) {
 
     const body = document.getElementById('diff-modal-body');
     body.innerHTML = `
-        <div style="color:var(--muted);font-size:12px;margin-bottom:12px">
-            Comparing <strong>${new Date(r.a.timestamp).toLocaleString()}</strong> → <strong>${new Date(r.b.timestamp).toLocaleString()}</strong>
-        </div>
-        <div class="diff-columns">
-            <div class="diff-col">
-                <h4>OLDER VERSION (${r.a.hash.slice(0,8)})</h4>
-                <pre>${r.screenshotA ? `<img src="/snapshots/${r.screenshotA}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.a.diff || '')}</pre>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="color:var(--muted);font-size:12px">
+                Comparing <strong>${new Date(r.a.timestamp).toLocaleString()}</strong> → <strong>${new Date(r.b.timestamp).toLocaleString()}</strong>
             </div>
-            <div class="diff-col">
-                <h4>NEWER VERSION (${r.b.hash.slice(0,8)})</h4>
-                <pre>${r.screenshotB ? `<img src="/snapshots/${r.screenshotB}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.b.diff || '')}</pre>
+            <div style="display:flex;gap:6px">
+                <button class="btn btn-primary btn-sm" id="tab-btn-side" onclick="switchDiffTab('side')">Side-by-Side</button>
+                ${r.screenshotA && r.screenshotB ? `<button class="btn btn-secondary btn-sm" id="tab-btn-slider" onclick="switchDiffTab('slider')">🔀 Comparison Slider</button>` : ''}
+                ${r.diffScreenshot ? `<button class="btn btn-secondary btn-sm" id="tab-btn-pixel" onclick="switchDiffTab('pixel')">🔍 Pixel Diff</button>` : ''}
             </div>
         </div>
+
+        <div id="diff-side-view">
+            <div class="diff-columns">
+                <div class="diff-col">
+                    <h4>OLDER VERSION (${r.a.hash.slice(0,8)})</h4>
+                    <pre>${r.screenshotA ? `<img src="/snapshots/${r.screenshotA}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.a.diff || '')}</pre>
+                </div>
+                <div class="diff-col">
+                    <h4>NEWER VERSION (${r.b.hash.slice(0,8)})</h4>
+                    <pre>${r.screenshotB ? `<img src="/snapshots/${r.screenshotB}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.b.diff || '')}</pre>
+                </div>
+            </div>
+        </div>
+
+        ${r.screenshotA && r.screenshotB ? `
+        <div id="diff-slider-view" style="display:none">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Drag the slider horizontally to wipe between Older (left) and Newer (right):</div>
+            <div class="slider-wrapper" id="slider-wrapper-el">
+                <img src="/snapshots/${r.screenshotB}" id="slider-base-img" alt="Newer Screenshot">
+                <div class="slider-overlay" id="slider-overlay-el" style="width:50%">
+                    <img src="/snapshots/${r.screenshotA}" id="slider-overlay-img" alt="Older Screenshot">
+                </div>
+            </div>
+            <input type="range" class="slider-range" min="0" max="100" value="50" oninput="updateDiffSlider(this.value)">
+        </div>` : ''}
+
         ${r.diffScreenshot ? `
-        <div style="margin-top:20px">
-            <h4 style="font-size:12px;color:var(--muted);margin-bottom:8px">PIXEL DIFF IMAGE</h4>
+        <div id="diff-pixel-view" style="display:none">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Pixel-level differences highlighted in red/pink:</div>
             <img src="/snapshots/${r.diffScreenshot}" style="max-width:100%;border-radius:6px;border:1px solid var(--border)">
         </div>` : ''}
     `;

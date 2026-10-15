@@ -21,6 +21,7 @@ const puppeteer = require('puppeteer');
 const crypto   = require('crypto');
 const nodemailer = require('nodemailer');
 const { diffLines } = require('diff');
+const axios = require('axios');
 const fs   = require('fs');
 const path = require('path');
 const http = require('http');
@@ -274,6 +275,37 @@ async function sendDiscordAlert(site, message) {
     }
 }
 
+async function sendWebhookAlert(site, data) {
+    if (!site.webhookUrl) return;
+    try {
+        const fetch = require('node-fetch');
+        const isSlack = site.webhookUrl.includes('slack.com');
+        const payload = isSlack
+            ? {
+                text: `*Change detected on ${site.name || site.url}*${data.matchedKeyword ? ` [Keyword: "${data.matchedKeyword}"]` : ''}\n${data.summary ? '🤖 *AI Summary:* ' + data.summary + '\n' : ''}\`${site.url}\`\n\`\`\`${(data.diff || '').slice(0, 500)}\`\`\``
+            }
+            : {
+                event: 'change_detected',
+                siteId: site.id,
+                name: site.name,
+                url: site.url,
+                timestamp: new Date().toISOString(),
+                summary: data.summary || null,
+                matchedKeyword: data.matchedKeyword || null,
+                diff: data.diff || ''
+            };
+
+        await fetch(site.webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        console.log('[Alert] Webhook sent to', site.webhookUrl);
+    } catch (err) {
+        console.error('[Alert] Webhook failed:', err.message);
+    }
+}
+
 async function sendAlerts(site, diffText, summary = '', matchedKeyword = null) {
     // Duplicate guard
     const now = Date.now();
@@ -293,7 +325,8 @@ async function sendAlerts(site, diffText, summary = '', matchedKeyword = null) {
     await Promise.all([
         sendEmailAlert(site, subject, body),
         sendTelegramAlert(site, tgMsg),
-        sendDiscordAlert(site, body)
+        sendDiscordAlert(site, body),
+        sendWebhookAlert(site, { diff: diffText, summary, matchedKeyword })
     ]);
 }
 
@@ -329,9 +362,7 @@ async function checkWebsite(site, attempt = 1) {
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-software-rasterizer',
-                '--single-process'
+                '--disable-gpu'
             ]
         };
         // On Railway/cloud: use system Chromium via env var
@@ -341,13 +372,33 @@ async function checkWebsite(site, attempt = 1) {
         browser = await puppeteer.launch(launchOptions);
         const page = await browser.newPage();
 
-        // Set a realistic user-agent to reduce bot blocks
+        // Standard desktop viewport for clear rendering & full snapshots
+        await page.setViewport({ width: 1280, height: 800 });
+
+        // Realistic user-agent to reduce bot blocks
         await page.setUserAgent(
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
             '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         );
 
-        await page.goto(site.url, { waitUntil: 'networkidle2', timeout: 30000 });
+        // Resilient navigation: domcontentloaded with retry for client-side redirection
+        try {
+            await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 35000 });
+        } catch (gotoErr) {
+            if (gotoErr.message && (gotoErr.message.includes('detached') || gotoErr.message.includes('destroyed'))) {
+                console.log(`[Puppeteer] Handled detached frame on ${site.url}, waiting for redirection to settle...`);
+                await new Promise(r => setTimeout(r, 3000));
+            } else {
+                throw gotoErr;
+            }
+        }
+
+        // Small wait buffer to allow SPA / dynamic JS hydration to complete
+        await new Promise(r => setTimeout(r, 2500));
+
+        if (page.isClosed()) {
+            throw new Error('Browser page was unexpectedly closed during navigation');
+        }
 
         // Remove ignored selectors from DOM before extracting text
         if (site.ignoreSelectors && site.ignoreSelectors.length) {
@@ -584,7 +635,7 @@ async function sendDailyDigest() {
     }
 
     for (const site of sitesWithChanges) {
-        if (!site.email && !site.telegramToken && !site.discordWebhook) continue;
+        if (!site.email && !site.telegramToken && !site.discordWebhook && !site.webhookUrl) continue;
         const recent = (site.history || []).filter(h => {
             return new Date(h.timestamp).getTime() > Date.now() - 24 * 60 * 60 * 1000;
         });
@@ -594,6 +645,7 @@ async function sendDailyDigest() {
         await sendEmailAlert(site, `[WCD Daily Digest] ${site.name || site.url}`, summary);
         await sendTelegramAlert(site, `*Daily Digest — ${site.name || site.url}*\n${recent.length} change(s) today`);
         await sendDiscordAlert(site, summary);
+        await sendWebhookAlert(site, { diff: summary, summary: `Daily Digest (${recent.length} change(s))` });
     }
     console.log(`[Digest] Sent for ${sitesWithChanges.length} site(s)`);
 }
@@ -605,8 +657,8 @@ scheduleDigest();
 /** POST /api/track — register or update a site */
 app.post('/api/track', async (req, res) => {
     const {
-        url, name, intervalMs, selector, watchSelectors, ignoreSelectors,
-        email, telegramToken, telegramChatId, discordWebhook, sensitivity,
+        id, url, name, intervalMs, selector, watchSelectors, ignoreSelectors,
+        email, telegramToken, telegramChatId, discordWebhook, webhookUrl, sensitivity,
         keywords
     } = req.body;
 
@@ -620,9 +672,11 @@ app.post('/api/track', async (req, res) => {
         ? keywords.map(k => String(k).trim()).filter(Boolean)
         : (typeof keywords === 'string' ? keywords.split(',').map(k => k.trim()).filter(Boolean) : []);
 
-    // URL-level deduplication
-    let site = watchedSites.find(s => s.url === url);
-    if (!site) {
+    // Find existing site by ID if provided, otherwise by URL
+    let site = (id ? watchedSites.find(s => s.id === id) : null) || watchedSites.find(s => s.url === url);
+    const isNew = !site;
+
+    if (isNew) {
         site = {
             id:              Date.now().toString(),
             url,
@@ -636,6 +690,7 @@ app.post('/api/track', async (req, res) => {
             telegramToken:   telegramToken   || '',
             telegramChatId:  telegramChatId  || '',
             discordWebhook:  discordWebhook  || '',
+            webhookUrl:      webhookUrl      || '',
             sensitivity:     Number(sensitivity) || 20,
             lastHash:        null,
             lastText:        '',
@@ -651,22 +706,31 @@ app.post('/api/track', async (req, res) => {
         startSiteTimer(site);
     } else {
         // Update settings for existing site
-        if (name)            site.name            = name;
-        if (intervalMs)      { site.intervalMs = Math.max(Number(intervalMs), 15 * 60 * 1000); startSiteTimer(site); }
-        if (watchSelectors)  site.watchSelectors  = watchSelectors;
-        if (ignoreSelectors) site.ignoreSelectors = ignoreSelectors;
-        if (keywords !== undefined) site.keywords = parsedKeywords;
-        if (email)           site.email           = email;
-        if (telegramToken)   site.telegramToken   = telegramToken;
-        if (telegramChatId)  site.telegramChatId  = telegramChatId;
-        if (discordWebhook)  site.discordWebhook  = discordWebhook;
-        if (sensitivity)     site.sensitivity     = Number(sensitivity);
+        if (url && url !== site.url) {
+            site.url = url;
+            site.lastHash = null; // force re-check for new URL
+        }
+        if (name !== undefined)            site.name            = name;
+        if (intervalMs !== undefined)      { site.intervalMs = Math.max(Number(intervalMs), 15 * 60 * 1000); startSiteTimer(site); }
+        if (watchSelectors !== undefined)  site.watchSelectors  = Array.isArray(watchSelectors) ? watchSelectors : (selector ? [selector] : []);
+        if (ignoreSelectors !== undefined) site.ignoreSelectors = Array.isArray(ignoreSelectors) ? ignoreSelectors : [];
+        if (keywords !== undefined)        site.keywords        = parsedKeywords;
+        if (email !== undefined)           site.email           = email;
+        if (telegramToken !== undefined)   site.telegramToken   = telegramToken;
+        if (telegramChatId !== undefined)  site.telegramChatId  = telegramChatId;
+        if (discordWebhook !== undefined)  site.discordWebhook  = discordWebhook;
+        if (webhookUrl !== undefined)      site.webhookUrl      = webhookUrl;
+        if (sensitivity !== undefined)     site.sensitivity     = Number(sensitivity);
     }
 
     saveSites();
     enqueue(site.id);
 
-    res.json({ success: true, message: 'Site registered. First check has been queued.', siteId: site.id });
+    res.json({
+        success: true,
+        message: isNew ? 'Site registered. First check has been queued.' : 'Site settings updated. Check has been queued.',
+        siteId: site.id
+    });
 });
 
 /** DELETE /api/sites/:id — remove a site */
@@ -884,6 +948,260 @@ app.post('/api/import', (req, res) => {
 
     saveSites();
     res.json({ success: true, added, skipped });
+});
+
+/** GET /api/proxy — proxy web pages with an injected CSS selector picker script */
+app.get('/api/proxy', async (req, res) => {
+    const targetUrl = req.query.url;
+    if (!targetUrl) return res.status(400).send('Missing url parameter');
+    if (hasCredentialsInUrl(targetUrl)) return res.status(400).send('Credentials in URL not permitted');
+
+    try {
+        const fetchRes = await axios.get(targetUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            },
+            timeout: 15000,
+            responseType: 'text',
+            maxRedirects: 5,
+            validateStatus: () => true
+        });
+
+        let html = fetchRes.data;
+        if (typeof html !== 'string') {
+            return res.status(502).send('Unable to render page preview: Non-text response.');
+        }
+
+        // Clean out restrictive CSP meta tags
+        html = html.replace(/<meta[^>]*http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, '');
+
+        // Inject base href and inspector script into head
+        const baseHref = `<base href="${targetUrl}">`;
+        const inspectorScript = `
+        <style id="wcd-inspector-style">
+            .wcd-highlight-target {
+                outline: 2px dashed #ff7700 !important;
+                background-color: rgba(255, 119, 0, 0.12) !important;
+                cursor: crosshair !important;
+                transition: outline 0.1s ease !important;
+            }
+            #wcd-tooltip {
+                position: fixed;
+                z-index: 2147483647;
+                background: #1a1d27;
+                color: #ff7700;
+                font-family: monospace;
+                font-size: 11px;
+                padding: 4px 8px;
+                border-radius: 4px;
+                border: 1px solid #ff7700;
+                pointer-events: none;
+                display: none;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            }
+        </style>
+        <div id="wcd-tooltip"></div>
+        <script>
+            (function() {
+                let hoveredEl = null;
+                const tooltip = document.getElementById('wcd-tooltip');
+
+                function getOptimalSelector(el) {
+                    if (!el || el.nodeType !== 1) return '';
+                    if (el.id) return '#' + CSS.escape(el.id);
+
+                    if (el.className && typeof el.className === 'string') {
+                        const classes = el.className.trim().split(/\\s+/).filter(c => c && !c.startsWith('wcd-') && !c.includes(':'));
+                        if (classes.length > 0) {
+                            const classSel = el.tagName.toLowerCase() + '.' + classes.map(c => CSS.escape(c)).join('.');
+                            try {
+                                if (document.querySelectorAll(classSel).length === 1) return classSel;
+                            } catch (_) {}
+                        }
+                    }
+
+                    const parts = [];
+                    let cur = el;
+                    while (cur && cur.nodeType === 1 && cur !== document.body && cur !== document.documentElement) {
+                        let tag = cur.tagName.toLowerCase();
+                        if (cur.id) {
+                            parts.unshift('#' + CSS.escape(cur.id));
+                            break;
+                        }
+                        let sibIndex = 1;
+                        let sib = cur.previousElementSibling;
+                        let hasSameSib = false;
+                        while (sib) {
+                            if (sib.tagName === cur.tagName) {
+                                sibIndex++;
+                                hasSameSib = true;
+                            }
+                            sib = sib.previousElementSibling;
+                        }
+                        let nextSib = cur.nextElementSibling;
+                        while (nextSib) {
+                            if (nextSib.tagName === cur.tagName) {
+                                hasSameSib = true;
+                                break;
+                            }
+                            nextSib = nextSib.nextElementSibling;
+                        }
+                        if (hasSameSib) {
+                            tag += ':nth-of-type(' + sibIndex + ')';
+                        }
+                        parts.unshift(tag);
+                        if (parts.length >= 3) break;
+                        cur = cur.parentElement;
+                    }
+                    return parts.join(' > ');
+                }
+
+                document.addEventListener('mouseover', function(e) {
+                    if (e.target === tooltip || e.target === document.body || e.target === document.documentElement) return;
+                    if (hoveredEl) hoveredEl.classList.remove('wcd-highlight-target');
+                    hoveredEl = e.target;
+                    hoveredEl.classList.add('wcd-highlight-target');
+
+                    const sel = getOptimalSelector(hoveredEl);
+                    if (tooltip) {
+                        tooltip.textContent = sel;
+                        tooltip.style.display = 'block';
+                        tooltip.style.left = Math.min(e.clientX + 12, window.innerWidth - 220) + 'px';
+                        tooltip.style.top = Math.max(e.clientY - 28, 10) + 'px';
+                    }
+                }, true);
+
+                document.addEventListener('mousemove', function(e) {
+                    if (tooltip && tooltip.style.display === 'block') {
+                        tooltip.style.left = Math.min(e.clientX + 12, window.innerWidth - 220) + 'px';
+                        tooltip.style.top = Math.max(e.clientY - 28, 10) + 'px';
+                    }
+                }, true);
+
+                document.addEventListener('mouseout', function(e) {
+                    if (e.target && e.target.classList) {
+                        e.target.classList.remove('wcd-highlight-target');
+                    }
+                    if (tooltip) tooltip.style.display = 'none';
+                }, true);
+
+                document.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const sel = getOptimalSelector(e.target);
+                    if (sel) {
+                        window.parent.postMessage({ type: 'SELECTOR_PICKED', selector: sel }, '*');
+                    }
+                }, true);
+            })();
+        </script>
+        `;
+
+        if (html.includes('</head>')) {
+            html = html.replace('</head>', `${baseHref}${inspectorScript}</head>`);
+        } else {
+            html = `${baseHref}${inspectorScript}` + html;
+        }
+
+        res.removeHeader('X-Frame-Options');
+        res.removeHeader('Content-Security-Policy');
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+
+    } catch (err) {
+        console.error('[Proxy] Failed to fetch:', err.message);
+        res.status(500).send(`
+            <div style="font-family:sans-serif;padding:24px;text-align:center;color:#ef4444;background:#1a1d27;height:100vh">
+                <h3>Could not load preview</h3>
+                <p style="color:#8892a4;font-size:13px">${err.message}</p>
+                <p style="font-size:12px;color:#8892a4;margin-top:10px">You can still enter CSS selectors manually in the dialog.</p>
+            </div>
+        `);
+    }
+});
+
+/** POST /api/test-alert — verify alert channel credentials */
+app.post('/api/test-alert', async (req, res) => {
+    const { type, email, telegramToken, telegramChatId, discordWebhook, webhookUrl } = req.body;
+    try {
+        const dummySite = {
+            id: 'test',
+            name: 'Website Change Detector (Test)',
+            url: 'https://example.com',
+            email: email || '',
+            telegramToken: telegramToken || '',
+            telegramChatId: telegramChatId || '',
+            discordWebhook: discordWebhook || '',
+            webhookUrl: webhookUrl || ''
+        };
+        const sampleDiff = '[+] Welcome to Website Watch\n[+] Alerts configured successfully!';
+        const sampleSummary = 'Verification test alert: notifications are operational.';
+
+        if (type === 'email') {
+            if (!email) return res.status(400).json({ error: 'Email address is required' });
+            await sendEmailAlert(dummySite, '[WCD Test Alert] Verification successful', 'This is a test notification from Website Change Detector.\nYour email alerts are functioning correctly!');
+        } else if (type === 'telegram') {
+            if (!telegramToken || !telegramChatId) return res.status(400).json({ error: 'Telegram Bot Token and Chat ID are required' });
+            await sendTelegramAlert(dummySite, '🎉 *Website Change Detector*\nTest alert successful! Your Telegram notifications are working.');
+        } else if (type === 'discord') {
+            if (!discordWebhook) return res.status(400).json({ error: 'Discord Webhook URL is required' });
+            await sendDiscordAlert(dummySite, '🎉 **Website Change Detector**\nTest alert successful! Your Discord webhook is working.');
+        } else if (type === 'webhook') {
+            if (!webhookUrl) return res.status(400).json({ error: 'Webhook URL is required' });
+            await sendWebhookAlert(dummySite, { diff: sampleDiff, summary: sampleSummary });
+        } else {
+            return res.status(400).json({ error: 'Invalid alert type specified' });
+        }
+        res.json({ success: true, message: `Test ${type} alert dispatched successfully!` });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/** GET /api/export/csv — download CSV report of all monitored sites */
+app.get('/api/export/csv', (req, res) => {
+    const headers = ['Site ID', 'Name', 'URL', 'Status', 'Interval (min)', 'Sensitivity (chars)', 'Last Checked', 'Last Changed', 'Change Count', 'Keywords', 'Email', 'Telegram Chat', 'Discord Webhook', 'Custom Webhook'];
+    const rows = watchedSites.map(s => [
+        `"${s.id}"`,
+        `"${(s.name || '').replace(/"/g, '""')}"`,
+        `"${(s.url || '').replace(/"/g, '""')}"`,
+        `"${s.status || 'PENDING'}"`,
+        Math.round((s.intervalMs || 3600000) / 60000),
+        s.sensitivity || 20,
+        `"${s.lastChecked || ''}"`,
+        `"${s.lastChanged || 'Never'}"`,
+        (s.history || []).length,
+        `"${(s.keywords || []).join(', ').replace(/"/g, '""')}"`,
+        `"${(s.email || '').replace(/"/g, '""')}"`,
+        `"${(s.telegramChatId || '').replace(/"/g, '""')}"`,
+        `"${(s.discordWebhook ? 'Configured' : '').replace(/"/g, '""')}"`,
+        `"${(s.webhookUrl ? 'Configured' : '').replace(/"/g, '""')}"`
+    ].join(','));
+
+    const csv = [headers.join(','), ...rows].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="wcd-sites-${Date.now()}.csv"`);
+    res.send(csv);
+});
+
+/** GET /api/sites/:id/export/csv — download CSV of this site's version history */
+app.get('/api/sites/:id/export/csv', (req, res) => {
+    const site = watchedSites.find(s => s.id === req.params.id);
+    if (!site) return res.status(404).send('Site not found');
+    const headers = ['Version ID', 'Timestamp', 'Hash', 'Matched Keyword', 'AI Summary', 'Diff Snippet'];
+    const rows = (site.history || []).map(h => [
+        `"${h.id}"`,
+        `"${h.timestamp}"`,
+        `"${h.hash}"`,
+        `"${(h.matchedKeyword || '').replace(/"/g, '""')}"`,
+        `"${(h.summary || '').replace(/"/g, '""')}"`,
+        `"${(h.diff || '').slice(0, 300).replace(/\r?\n/g, ' ').replace(/"/g, '""')}"`
+    ].join(','));
+    const csv = [headers.join(','), ...rows].join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="wcd-${site.id}-history.csv"`);
+    res.send(csv);
 });
 
 // ─── Start server ──────────────────────────────────────────────────────────
