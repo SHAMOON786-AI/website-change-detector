@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "tunnel": "ngrok http 3000 --url washday-other-resend.ngrok-free.dev"
   },
   "dependencies": {
     "axios": "^1.7.2",
