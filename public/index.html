@@ -626,7 +626,7 @@
                     <tr><td colspan="6">
                         <div class="empty-state">
                             <div class="icon">🕵️</div>
-                            <div>No sites monitored yet.<br>Click <strong>+ Add Site</strong> to begin.</div>
+                            <div>No sites monitored yet.<br>Click <strong style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="toggleAddPanel()">+ Add Site</strong> to begin.</div>
                         </div>
                     </td></tr>
                 </tbody>
@@ -927,7 +927,7 @@ function renderTable(sitesToRender) {
         tbody.innerHTML = `<tr><td colspan="6">
             <div class="empty-state">
                 <div class="icon">🕵️</div>
-                <div>No sites matched current criteria.<br>Click <strong>+ Add Site</strong> or reset filters.</div>
+                <div>No sites matched current criteria.<br>Click <strong style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="toggleAddPanel()">+ Add Site</strong> or reset filters.</div>
             </div>
         </td></tr>`;
         return;
@@ -1054,9 +1054,12 @@ let editingSiteId = null;
 
 function toggleAddPanel() {
     const p = document.getElementById('add-panel');
-    const isOpening = p.style.display === 'none';
-    p.style.display = isOpening ? 'block' : 'none';
-    if (!isOpening && editingSiteId) {
+    if (!p) return;
+    const isHidden = p.style.display === 'none' || window.getComputedStyle(p).display === 'none';
+    p.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) {
+        p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (editingSiteId) {
         cancelEditForm();
     }
 }
@@ -1395,15 +1398,9 @@ function escHtml(s) {
 }
 
 // ── Search / filter ────────────────────────────────────────────────────────
-let filterQuery = '';
-
 function filterTable(query) {
     filterQuery = query.toLowerCase();
-    const filtered = sites.filter(s =>
-        (s.name || s.url).toLowerCase().includes(filterQuery) ||
-        s.url.toLowerCase().includes(filterQuery)
-    );
-    renderTable(filtered);
+    applyFilters();
 }
 
 // ── Pause / Resume ─────────────────────────────────────────────────────────
