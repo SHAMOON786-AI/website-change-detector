@@ -381,6 +381,30 @@ async function checkWebsite(site, attempt = 1) {
             '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         );
 
+        // Inject custom headers / cookies if provided (for auth-protected dashboards)
+        if (site.customHeaders) {
+            try {
+                let headersObj = {};
+                if (typeof site.customHeaders === 'string') {
+                    const trimmed = site.customHeaders.trim();
+                    if (trimmed.startsWith('{')) {
+                        headersObj = JSON.parse(trimmed);
+                    } else if (trimmed.toLowerCase().startsWith('cookie:')) {
+                        headersObj = { 'Cookie': trimmed.slice(7).trim() };
+                    } else if (trimmed.toLowerCase().startsWith('authorization:')) {
+                        headersObj = { 'Authorization': trimmed.slice(14).trim() };
+                    } else {
+                        headersObj = { 'Cookie': trimmed };
+                    }
+                } else if (typeof site.customHeaders === 'object') {
+                    headersObj = site.customHeaders;
+                }
+                await page.setExtraHTTPHeaders(headersObj);
+            } catch (err) {
+                console.warn(`[Puppeteer] Failed to set custom headers on ${site.url}:`, err.message);
+            }
+        }
+
         // Measure page response latency
         const navStartTime = Date.now();
 
@@ -467,9 +491,11 @@ async function checkWebsite(site, attempt = 1) {
             // Check sensitivity threshold (minimum characters changed)
             const changes   = diffLines(site.lastText || '', filteredText);
             const addedChars = changes.filter(p => p.added).reduce((n, p) => n + p.value.length, 0);
+            const removedChars = changes.filter(p => p.removed).reduce((n, p) => n + p.value.length, 0);
+            const totalDiffChars = Math.max(addedChars, removedChars);
             const threshold  = site.sensitivity || 20; // characters
 
-            if (addedChars >= threshold) {
+            if (totalDiffChars >= threshold) {
                 hasChanged = true;
                 diffText   = changes.map(p => {
                     if (p.added)   return `[+] ${p.value}`;
@@ -668,7 +694,7 @@ app.post('/api/track', async (req, res) => {
     const {
         id, url, name, intervalMs, selector, watchSelectors, ignoreSelectors,
         email, telegramToken, telegramChatId, discordWebhook, webhookUrl, sensitivity,
-        keywords, tags
+        keywords, tags, customHeaders
     } = req.body;
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
@@ -699,6 +725,7 @@ app.post('/api/track', async (req, res) => {
             ignoreSelectors: Array.isArray(ignoreSelectors) ? ignoreSelectors : [],
             keywords:        parsedKeywords,
             tags:            parsedTags,
+            customHeaders:   customHeaders || '',
             metrics:         [],
             responseTimeMs:  null,
             responseTimes:   [],
@@ -732,6 +759,7 @@ app.post('/api/track', async (req, res) => {
         if (ignoreSelectors !== undefined) site.ignoreSelectors = Array.isArray(ignoreSelectors) ? ignoreSelectors : [];
         if (keywords !== undefined)        site.keywords        = parsedKeywords;
         if (tags !== undefined)            site.tags            = parsedTags;
+        if (customHeaders !== undefined)   site.customHeaders   = customHeaders;
         if (email !== undefined)           site.email           = email;
         if (telegramToken !== undefined)   site.telegramToken   = telegramToken;
         if (telegramChatId !== undefined)  site.telegramChatId  = telegramChatId;

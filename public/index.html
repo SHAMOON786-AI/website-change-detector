@@ -594,6 +594,20 @@
                 </div>
             </div>
 
+            <!-- Advanced: Authentication & Custom Headers -->
+            <div class="form-group full">
+                <div class="collapsible-header" onclick="toggleCollapse(this)">🔐 Authentication & Session Cookies (for Dashboards behind Login)</div>
+                <div class="collapsible-body">
+                    <div style="margin-top:10px">
+                        <label>Session Cookie or Custom Request Headers (optional)</label>
+                        <textarea id="f-headers" rows="2" placeholder='e.g. session=abc123 or sb-access-token=xyz or {"Authorization": "Bearer token"}' style="font-family:monospace;font-size:12px"></textarea>
+                        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+                            💡 Paste your browser's session cookie or Authorization header to monitor dashboards that require logging in.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="form-group full" style="display:flex;gap:10px;justify-content:flex-end">
                 <button class="btn btn-secondary" onclick="cancelEditForm()">Cancel</button>
                 <button class="btn btn-primary" id="f-submit-btn" onclick="submitTrack()">🚀 Start Monitoring</button>
@@ -1087,6 +1101,7 @@ function editSite(id) {
     document.getElementById('f-tg-chat').value = s.telegramChatId || '';
     document.getElementById('f-discord').value = s.discordWebhook || '';
     document.getElementById('f-webhook').value = s.webhookUrl || '';
+    document.getElementById('f-headers').value = s.customHeaders || '';
 
     watchSelectors = [...(s.watchSelectors || [])];
     ignoreSelectors = [...(s.ignoreSelectors || [])];
@@ -1101,6 +1116,11 @@ function editSite(id) {
     if (watchSelectors.length || ignoreSelectors.length) {
         document.querySelectorAll('.collapsible-header').forEach(h => {
             if (h.textContent.includes('Regions') && !h.classList.contains('open')) toggleCollapse(h);
+        });
+    }
+    if (s.customHeaders) {
+        document.querySelectorAll('.collapsible-header').forEach(h => {
+            if (h.textContent.includes('Authentication') && !h.classList.contains('open')) toggleCollapse(h);
         });
     }
 
@@ -1144,6 +1164,7 @@ async function submitTrack() {
         email:           document.getElementById('f-email').value.trim(),
         keywords:        document.getElementById('f-keywords').value.trim(),
         tags:            document.getElementById('f-tags').value.trim(),
+        customHeaders:   document.getElementById('f-headers').value.trim(),
         telegramToken:   document.getElementById('f-tg-token').value.trim(),
         telegramChatId:  document.getElementById('f-tg-chat').value.trim(),
         discordWebhook:  document.getElementById('f-discord').value.trim(),
@@ -1176,7 +1197,7 @@ async function submitTrack() {
 }
 
 function resetForm() {
-    ['f-name','f-url','f-email','f-keywords','f-tags','f-tg-token','f-tg-chat','f-discord','f-webhook'].forEach(id => {
+    ['f-name','f-url','f-email','f-keywords','f-tags','f-headers','f-tg-token','f-tg-chat','f-discord','f-webhook'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
