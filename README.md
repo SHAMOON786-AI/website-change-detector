@@ -26,6 +26,11 @@ The link for the website is:- https://washday-other-resend.ngrok-free.dev
 | **Diff viewer modal** | Side-by-side text and screenshot comparison |
 | **Export / Import** | Full JSON backup and restore |
 | **Dashboard search** | Real-time filter by site name or URL |
+| **🤖 AI One-Line Summaries** | Automatic 1-sentence synopsis of what changed (Gemini / NLP) |
+| **🎯 Keyword-Only Alerts** | Alert only when specific keywords/terms appear in the diff |
+| **📈 Number Tracking & Charts** | Interactive Chart.js trend graph of numeric/price values |
+| **📡 Per-Page & Global RSS** | Standard RSS 2.0 XML feeds (`/api/sites/:id/rss`, `/api/rss`) |
+| **🧩 Browser Extension** | Chrome / Edge companion extension for 1-click tab monitoring |
 
 ---
 
@@ -127,7 +132,12 @@ Open **http://localhost:3000** in your browser.
 website-change-detector/
 ├── server.js          # Express server, Puppeteer scraper, scheduler, APIs
 ├── public/
-│   └── index.html     # Single-page dashboard (vanilla JS + CSS)
+│   └── index.html     # Single-page dashboard (vanilla JS + CSS + Chart.js)
+├── extension/         # Chrome / Edge Browser Extension (Manifest V3)
+│   ├── manifest.json  # Extension manifest
+│   ├── popup.html     # Extension popup interface
+│   ├── popup.js       # Auto-detect tab & submit to API
+│   └── README.md      # Installation instructions
 ├── snapshots/         # Screenshot files (auto-created)
 ├── sites.json         # Persisted site data (auto-created)
 ├── .env               # Your secrets (not committed)
@@ -141,7 +151,7 @@ website-change-detector/
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/track` | Register or update a site |
+| `POST` | `/api/track` | Register or update a site (supports keywords & selectors) |
 | `GET` | `/api/sites` | List all sites |
 | `GET` | `/api/sites/:id` | Get a single site |
 | `DELETE` | `/api/sites/:id` | Remove a site |
@@ -150,6 +160,9 @@ website-change-detector/
 | `GET` | `/api/sites/:id/history/:vid` | Get a history entry |
 | `POST` | `/api/sites/:id/compare` | Compare two versions |
 | `PATCH` | `/api/sites/:id/selectors` | Update watch/ignore selectors |
+| `GET` | `/api/sites/:id/metrics` | Retrieve numeric / price tracking history for charts |
+| `GET` | `/api/sites/:id/rss` | RSS 2.0 XML feed for this site |
+| `GET` | `/api/rss` | Aggregated RSS 2.0 XML feed across all sites |
 | `GET` | `/api/queue` | View current job queue |
 | `GET` | `/api/export` | Download full JSON backup |
 | `POST` | `/api/import` | Import sites from backup |

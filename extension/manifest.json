@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Website Watch — Change Detector",
+  "version": "1.0.0",
+  "description": "One-click website change monitoring from any tab.",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Track this page with Website Change Detector"
+  }
+}

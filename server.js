@@ -43,6 +43,14 @@ if (!fs.existsSync(SNAPSHOTS_DIR)) fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+// CORS support for Browser Extension and external API clients
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    next();
+});
 app.use(express.static('public'));
 app.use('/snapshots', express.static(SNAPSHOTS_DIR));
 
@@ -123,6 +131,94 @@ function hasCredentialsInUrl(urlStr) {
     } catch { return false; }
 }
 
+/** XML escaping for RSS feed generation */
+function escapeXml(unsafe) {
+    return (unsafe || '').replace(/[<>&'"]/g, c => {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '\'': return '&apos;';
+            case '"': return '&quot;';
+            default: return c;
+        }
+    });
+}
+
+/** Extracts first numeric/price/percentage metric from text for trend tracking */
+function extractMetric(text) {
+    if (!text) return null;
+    const match = text.match(/(?:[\$€£₹]\s*([0-9,]+(?:\.[0-9]+)?))|(\b[0-9,]+(?:\.[0-9]+)?\s*%)|(\b[0-9,]+(?:\.[0-9]+)?\b)/);
+    if (match) {
+        const raw = match[1] || match[2] || match[3];
+        const val = parseFloat(raw.replace(/[,%\$€£₹\s]/g, ''));
+        if (!isNaN(val)) return val;
+    }
+    return null;
+}
+
+/** AI one-line change summarizer with Gemini support & smart NLP fallback */
+async function generateAiSummary(diffText, addedLines = [], removedLines = []) {
+    // 1. Try Gemini API if key is present in environment
+    if (process.env.GEMINI_API_KEY) {
+        try {
+            const fetch = require('node-fetch');
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [{
+                            text: `Summarize this website change diff in exactly ONE concise sentence (max 20 words). Focus specifically on the meaningful update (price, stock, headline, or text changed):\n\n${diffText.slice(0, 1200)}`
+                        }]
+                    }]
+                })
+            });
+            const data = await res.json();
+            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text && text.trim()) return text.trim().replace(/\n/g, ' ');
+        } catch (e) {
+            console.warn('[AI] Gemini call failed, falling back to smart NLP summarizer:', e.message);
+        }
+    }
+
+    // 2. High-performance NLP heuristic summarizer
+    const addedSnippet = addedLines.join(' ').replace(/\s+/g, ' ').trim();
+    const removedSnippet = removedLines.join(' ').replace(/\s+/g, ' ').trim();
+
+    // Check for price / metric movements
+    const metricAdd = addedSnippet.match(/[\$€£₹]\s*[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?%/);
+    const metricRem = removedSnippet.match(/[\$€£₹]\s*[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?%/);
+    if (metricAdd && metricRem) {
+        return `Metric shifted from ${metricRem[0]} to ${metricAdd[0]}.`;
+    } else if (metricAdd) {
+        return `New metric or price detected: ${metricAdd[0]}.`;
+    }
+
+    // Check for stock status changes
+    const lowerAdd = addedSnippet.toLowerCase();
+    const lowerRem = removedSnippet.toLowerCase();
+    if (lowerAdd.includes('in stock') || lowerAdd.includes('available')) return 'Item or page status changed to In Stock / Available.';
+    if (lowerAdd.includes('out of stock') || lowerAdd.includes('sold out')) return 'Item or page marked as Out of Stock / Sold Out.';
+
+    // Text additions / deletions
+    if (addedSnippet && !removedSnippet) {
+        const preview = addedSnippet.length > 70 ? addedSnippet.slice(0, 67) + '...' : addedSnippet;
+        return `New content added: "${preview}"`;
+    }
+    if (removedSnippet && !addedSnippet) {
+        const preview = removedSnippet.length > 70 ? removedSnippet.slice(0, 67) + '...' : removedSnippet;
+        return `Content removed: "${preview}"`;
+    }
+    if (addedSnippet && removedSnippet) {
+        const aPrev = addedSnippet.length > 40 ? addedSnippet.slice(0, 37) + '...' : addedSnippet;
+        const rPrev = removedSnippet.length > 40 ? removedSnippet.slice(0, 37) + '...' : removedSnippet;
+        return `Replaced "${rPrev}" with "${aPrev}".`;
+    }
+
+    return `Content updated (+${addedSnippet.length} chars).`;
+}
+
 // ─── Alert sending ─────────────────────────────────────────────────────────
 
 async function sendEmailAlert(site, subject, body) {
@@ -178,7 +274,7 @@ async function sendDiscordAlert(site, message) {
     }
 }
 
-async function sendAlerts(site, diffText) {
+async function sendAlerts(site, diffText, summary = '', matchedKeyword = null) {
     // Duplicate guard
     const now = Date.now();
     if (site.lastAlertHash === site.lastHash && (now - (site.lastAlertAt || 0)) < ALERT_COOLDOWN_MS) {
@@ -188,9 +284,11 @@ async function sendAlerts(site, diffText) {
     site.lastAlertHash = site.lastHash;
     site.lastAlertAt   = now;
 
-    const subject = `[WCD] Change detected on ${site.name || site.url}`;
-    const body    = `URL: ${site.url}\nTime: ${new Date().toLocaleString()}\n\nDiff (first 800 chars):\n${diffText.slice(0, 800)}`;
-    const tgMsg   = `*Change detected*\n\`${site.url}\`\n${new Date().toLocaleString()}\n\`\`\`\n${diffText.slice(0, 300)}\n\`\`\``;
+    const kwTag = matchedKeyword ? ` [Keyword: "${matchedKeyword}"]` : '';
+    const subject = `[WCD] Change detected on ${site.name || site.url}${kwTag}`;
+    const summaryBlock = summary ? `\n🤖 AI Summary: ${summary}\n` : '';
+    const body    = `URL: ${site.url}\nTime: ${new Date().toLocaleString()}${summaryBlock}\nDiff (first 800 chars):\n${diffText.slice(0, 800)}`;
+    const tgMsg   = `*Change detected*${kwTag}\n\`${site.url}\`\n${new Date().toLocaleString()}${summary ? `\n🤖 *AI Summary:* ${summary}` : ''}\n\`\`\`\n${diffText.slice(0, 300)}\n\`\`\``;
 
     await Promise.all([
         sendEmailAlert(site, subject, body),
@@ -279,6 +377,17 @@ async function checkWebsite(site, attempt = 1) {
             pageText = await page.evaluate(() => document.body.innerText);
         }
 
+        // Extract and record numeric metric trend (price/stock/numbers)
+        const metricVal = extractMetric(pageText);
+        if (metricVal !== null) {
+            if (!site.metrics) site.metrics = [];
+            site.metrics.push({
+                timestamp: new Date().toISOString(),
+                value: metricVal
+            });
+            if (site.metrics.length > 100) site.metrics = site.metrics.slice(-100);
+        }
+
         // Apply noise filter
         const filteredText = filterNoise(pageText);
 
@@ -309,6 +418,22 @@ async function checkWebsite(site, attempt = 1) {
                     return '';
                 }).filter(Boolean).join('\n');
 
+                const addedLines = changes.filter(p => p.added).map(p => p.value);
+                const removedLines = changes.filter(p => p.removed).map(p => p.value);
+                const aiSummary = await generateAiSummary(diffText, addedLines, removedLines);
+
+                // Keyword-only alert check
+                let matchedKeyword = null;
+                let shouldAlert = true;
+                if (site.keywords && site.keywords.length > 0) {
+                    const lowerDiff = diffText.toLowerCase();
+                    matchedKeyword = site.keywords.find(kw => kw && lowerDiff.includes(kw.toLowerCase().trim()));
+                    if (!matchedKeyword) {
+                        console.log(`[Alert] Change on ${site.url} skipped: did not match keywords (${site.keywords.join(', ')})`);
+                        shouldAlert = false;
+                    }
+                }
+
                 // Screenshot
                 const screenshotName = `${site.id}_${Date.now()}.png`;
                 const screenshotPath = path.join(SNAPSHOTS_DIR, screenshotName);
@@ -323,12 +448,14 @@ async function checkWebsite(site, attempt = 1) {
                     }
                 }
 
-                // History entry
+                // History entry with AI summary and keyword info
                 const historyEntry = {
                     id:             generateHash(screenshotName),
                     timestamp:      new Date().toISOString(),
                     hash:           currentHash,
                     diff:           diffText,
+                    summary:        aiSummary,
+                    matchedKeyword: matchedKeyword || null,
                     screenshot:     screenshotName,
                     diffScreenshot: diffScreenshotPath ? path.basename(diffScreenshotPath) : null
                 };
@@ -337,7 +464,9 @@ async function checkWebsite(site, attempt = 1) {
                 site.lastScreenshot = screenshotName;
                 site.lastChanged    = new Date().toLocaleString();
 
-                await sendAlerts(site, diffText);
+                if (shouldAlert) {
+                    await sendAlerts(site, diffText, aiSummary, matchedKeyword);
+                }
             }
         } else if (!site.lastHash) {
             // First check — take baseline screenshot
@@ -477,7 +606,8 @@ scheduleDigest();
 app.post('/api/track', async (req, res) => {
     const {
         url, name, intervalMs, selector, watchSelectors, ignoreSelectors,
-        email, telegramToken, telegramChatId, discordWebhook, sensitivity
+        email, telegramToken, telegramChatId, discordWebhook, sensitivity,
+        keywords
     } = req.body;
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
@@ -485,6 +615,10 @@ app.post('/api/track', async (req, res) => {
     if (hasCredentialsInUrl(url)) {
         return res.status(400).json({ error: 'URLs with embedded credentials are not allowed' });
     }
+
+    const parsedKeywords = Array.isArray(keywords)
+        ? keywords.map(k => String(k).trim()).filter(Boolean)
+        : (typeof keywords === 'string' ? keywords.split(',').map(k => k.trim()).filter(Boolean) : []);
 
     // URL-level deduplication
     let site = watchedSites.find(s => s.url === url);
@@ -496,6 +630,8 @@ app.post('/api/track', async (req, res) => {
             intervalMs:      Math.max(Number(intervalMs) || 15 * 60 * 1000, 15 * 60 * 1000),
             watchSelectors:  Array.isArray(watchSelectors)  ? watchSelectors  : (selector ? [selector] : []),
             ignoreSelectors: Array.isArray(ignoreSelectors) ? ignoreSelectors : [],
+            keywords:        parsedKeywords,
+            metrics:         [],
             email:           email || '',
             telegramToken:   telegramToken   || '',
             telegramChatId:  telegramChatId  || '',
@@ -519,6 +655,7 @@ app.post('/api/track', async (req, res) => {
         if (intervalMs)      { site.intervalMs = Math.max(Number(intervalMs), 15 * 60 * 1000); startSiteTimer(site); }
         if (watchSelectors)  site.watchSelectors  = watchSelectors;
         if (ignoreSelectors) site.ignoreSelectors = ignoreSelectors;
+        if (keywords !== undefined) site.keywords = parsedKeywords;
         if (email)           site.email           = email;
         if (telegramToken)   site.telegramToken   = telegramToken;
         if (telegramChatId)  site.telegramChatId  = telegramChatId;
@@ -593,6 +730,94 @@ app.patch('/api/sites/:id/selectors', (req, res) => {
     if (ignoreSelectors) site.ignoreSelectors = ignoreSelectors;
     saveSites();
     res.json({ success: true, site: { watchSelectors: site.watchSelectors, ignoreSelectors: site.ignoreSelectors } });
+});
+
+/** GET /api/sites/:id/metrics — numeric metric trend data for charts */
+app.get('/api/sites/:id/metrics', (req, res) => {
+    const site = watchedSites.find(s => s.id === req.params.id);
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    res.json(site.metrics || []);
+});
+
+/** GET /api/sites/:id/rss — RSS 2.0 XML feed for an individual site */
+app.get('/api/sites/:id/rss', (req, res) => {
+    const site = watchedSites.find(s => s.id === req.params.id);
+    if (!site) return res.status(404).send('Site not found');
+
+    const historyItems = (site.history || []).map(h => `
+        <item>
+            <title>${escapeXml(h.summary || 'Content updated on ' + (site.name || site.url))}</title>
+            <link>${escapeXml(site.url)}</link>
+            <guid isPermaLink="false">${escapeXml(h.id)}</guid>
+            <pubDate>${new Date(h.timestamp).toUTCString()}</pubDate>
+            <description><![CDATA[
+                <p><strong>URL:</strong> ${escapeXml(site.url)}</p>
+                <p><strong>Detected At:</strong> ${new Date(h.timestamp).toLocaleString()}</p>
+                ${h.summary ? `<p><strong>AI Summary:</strong> ${escapeXml(h.summary)}</p>` : ''}
+                ${h.matchedKeyword ? `<p><strong>Matched Keyword:</strong> ${escapeXml(h.matchedKeyword)}</p>` : ''}
+                <hr/>
+                <pre style="background:#f4f4f4;padding:10px;border-radius:4px;font-family:monospace;white-space:pre-wrap;">${escapeXml(h.diff)}</pre>
+            ]]></description>
+        </item>
+    `).join('');
+
+    const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+    <channel>
+        <title>Website Watch — ${escapeXml(site.name || site.url)}</title>
+        <link>${escapeXml(site.url)}</link>
+        <description>Change history and alerts for ${escapeXml(site.name || site.url)}</description>
+        <language>en-us</language>
+        <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+        ${historyItems}
+    </channel>
+</rss>`;
+
+    res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+    res.send(rssXml);
+});
+
+/** GET /api/rss — Aggregated RSS 2.0 feed for all watched sites */
+app.get('/api/rss', (req, res) => {
+    const allChanges = [];
+    for (const site of watchedSites) {
+        for (const h of (site.history || [])) {
+            allChanges.push({ site, history: h });
+        }
+    }
+    allChanges.sort((a, b) => new Date(b.history.timestamp) - new Date(a.history.timestamp));
+
+    const feedItems = allChanges.slice(0, 50).map(({ site, history: h }) => `
+        <item>
+            <title>[${escapeXml(site.name || site.url)}] ${escapeXml(h.summary || 'Website Change Detected')}</title>
+            <link>${escapeXml(site.url)}</link>
+            <guid isPermaLink="false">${escapeXml(h.id)}</guid>
+            <pubDate>${new Date(h.timestamp).toUTCString()}</pubDate>
+            <description><![CDATA[
+                <p><strong>Site:</strong> ${escapeXml(site.name || site.url)}</p>
+                <p><strong>URL:</strong> ${escapeXml(site.url)}</p>
+                <p><strong>Time:</strong> ${new Date(h.timestamp).toLocaleString()}</p>
+                ${h.summary ? `<p><strong>Summary:</strong> ${escapeXml(h.summary)}</p>` : ''}
+                <hr/>
+                <pre style="background:#f4f4f4;padding:10px;border-radius:4px;font-family:monospace;white-space:pre-wrap;">${escapeXml(h.diff)}</pre>
+            ]]></description>
+        </item>
+    `).join('');
+
+    const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+    <channel>
+        <title>Website Change Detector — All Sites Feed</title>
+        <link>http://localhost:${PORT}</link>
+        <description>Aggregated live updates from all monitored websites</description>
+        <language>en-us</language>
+        <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+        ${feedItems}
+    </channel>
+</rss>`;
+
+    res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+    res.send(rssXml);
 });
 
 /** GET /api/queue — current queue state */

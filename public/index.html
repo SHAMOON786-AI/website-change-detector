@@ -322,13 +322,38 @@
             .form-group.full { grid-column: span 1; }
             .diff-columns { grid-template-columns: 1fr; }
         }
+
+        .ai-summary {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(79, 142, 247, 0.12);
+            border-left: 3px solid var(--accent2);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #93c5fd;
+            margin-bottom: 8px;
+        }
+        .kw-pill {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            margin-left: 6px;
+        }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
 <header>
     <div class="logo">🔍 Website<span>Watch</span></div>
     <div class="nav-btns">
+        <a href="/api/rss" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📡 RSS</a>
         <button class="btn btn-secondary btn-sm" onclick="exportSites()">⬇ Export</button>
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
             ⬆ Import
@@ -396,6 +421,10 @@
             <div class="form-group full">
                 <label>Email for alerts (optional)</label>
                 <input type="email" id="f-email" placeholder="you@example.com">
+            </div>
+            <div class="form-group full">
+                <label>Keyword-Only Alerts (optional — comma-separated; alerts trigger ONLY if diff contains these words)</label>
+                <input type="text" id="f-keywords" placeholder="e.g. price, out of stock, sale, discount, 50%">
             </div>
 
             <!-- Advanced: alerts section -->
@@ -524,6 +553,24 @@
     </div>
 </div>
 
+<!-- Metrics Trend Chart modal -->
+<div class="modal-overlay" id="chart-modal">
+    <div class="modal" style="max-width:760px;width:95%">
+        <div class="modal-header">
+            <h3 id="chart-title">📈 Metric Trend Chart</h3>
+            <button class="modal-close" onclick="closeChartModal()">✕</button>
+        </div>
+        <div class="modal-body" style="padding:20px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px" id="chart-desc">
+                Visualizing numeric/price changes tracked over time
+            </div>
+            <div style="position:relative;height:320px;width:100%">
+                <canvas id="metrics-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div id="toast-container"></div>
 
 <script>
@@ -622,6 +669,8 @@ function renderTable(sites) {
                         <button class="btn btn-secondary btn-sm" onclick="togglePause('${s.id}')" title="${s.paused ? 'Resume monitoring' : 'Pause monitoring'}">
                             ${s.paused ? '▶ Resume' : '⏸ Pause'}
                         </button>
+                        <button class="btn btn-secondary btn-sm" onclick="openMetricsChart('${s.id}', '${escAttr(s.name||s.url)}')">📈 Chart</button>
+                        <a href="/api/sites/${s.id}/rss" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none" title="Site RSS Feed">📡 RSS</a>
                         <button class="btn btn-blue btn-sm" onclick="toggleHistory('${s.id}')">
                             ${expanded ? '▲' : '▼'} History${s.history && s.history.length ? ` (${s.history.length})` : ''}
                         </button>
@@ -660,7 +709,11 @@ function renderTimeline(site) {
         return `<div class="timeline-entry">
             <div class="tl-dot"></div>
             <div class="tl-meta">
-                <div class="tl-time">${new Date(h.timestamp).toLocaleString()} · <span style="font-family:monospace;font-size:11px">${h.hash.slice(0,8)}</span></div>
+                <div class="tl-time">
+                    ${new Date(h.timestamp).toLocaleString()} · <span style="font-family:monospace;font-size:11px">${h.hash.slice(0,8)}</span>
+                    ${h.matchedKeyword ? `<span class="kw-pill">🎯 ${escHtml(h.matchedKeyword)}</span>` : ''}
+                </div>
+                ${h.summary ? `<div class="ai-summary">🤖 <strong>AI Summary:</strong> ${escHtml(h.summary)}</div>` : ''}
                 <div class="tl-diff"><code>${diffHtml || '(No diff recorded)'}</code></div>
                 <div class="tl-actions">
                     ${h.screenshot ? `<button class="btn btn-secondary btn-sm" onclick="openScreenshot('/snapshots/${h.screenshot}')">📷 Screenshot</button>` : ''}
@@ -712,6 +765,7 @@ async function submitTrack() {
         intervalMs:      Number(document.getElementById('f-interval').value),
         sensitivity:     Number(document.getElementById('f-sensitivity').value),
         email:           document.getElementById('f-email').value.trim(),
+        keywords:        document.getElementById('f-keywords').value.trim(),
         telegramToken:   document.getElementById('f-tg-token').value.trim(),
         telegramChatId:  document.getElementById('f-tg-chat').value.trim(),
         discordWebhook:  document.getElementById('f-discord').value.trim(),
@@ -742,7 +796,10 @@ async function submitTrack() {
 }
 
 function resetForm() {
-    ['f-name','f-url','f-email','f-tg-token','f-tg-chat','f-discord'].forEach(id => document.getElementById(id).value = '');
+    ['f-name','f-url','f-email','f-keywords','f-tg-token','f-tg-chat','f-discord'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
     document.getElementById('f-interval').value = '3600000';
     document.getElementById('f-sensitivity').value = '20';
     document.getElementById('f-sens-val').textContent = '20';
@@ -923,6 +980,90 @@ async function importSites(event) {
         toast('Invalid file: ' + e.message, 'error');
     }
     event.target.value = ''; // reset file input
+}
+
+// ── Metric Chart Modal ─────────────────────────────────────────────────────
+let metricsChartInstance = null;
+
+async function openMetricsChart(siteId, siteName) {
+    document.getElementById('chart-title').textContent = `📈 Trend Tracking — ${siteName}`;
+    document.getElementById('chart-modal').classList.add('open');
+
+    try {
+        const metrics = await api('GET', `/api/sites/${siteId}/metrics`);
+        const canvas = document.getElementById('metrics-canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (metricsChartInstance) {
+            metricsChartInstance.destroy();
+            metricsChartInstance = null;
+        }
+
+        if (!metrics || metrics.length === 0) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = '14px sans-serif';
+            ctx.fillStyle = '#8892a4';
+            ctx.textAlign = 'center';
+            ctx.fillText('No numerical/price values tracked yet for this page.', canvas.width / 2, canvas.height / 2 || 150);
+            return;
+        }
+
+        const labels = metrics.map(m => new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        const data = metrics.map(m => m.value);
+
+        metricsChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Numeric Value',
+                    data,
+                    borderColor: '#ff7700',
+                    backgroundColor: 'rgba(255, 119, 0, 0.15)',
+                    fill: true,
+                    tension: 0.25,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#ff7700',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { color: '#8892a4', maxTicksLimit: 8 },
+                        grid: { color: '#2e3150' }
+                    },
+                    y: {
+                        ticks: { color: '#8892a4' },
+                        grid: { color: '#2e3150' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1a1d27',
+                        titleColor: '#ff7700',
+                        bodyColor: '#e2e8f0',
+                        borderColor: '#2e3150',
+                        borderWidth: 1
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        toast('Failed to load metrics: ' + e.message, 'error');
+    }
+}
+
+function closeChartModal() {
+    document.getElementById('chart-modal').classList.remove('open');
+}
+
+function escAttr(s) {
+    return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
 // Close modals on overlay click
