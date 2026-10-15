@@ -22,11 +22,26 @@
             --radius:  10px;
         }
 
+        body.light-theme {
+            --bg:      #f8fafc;
+            --surface: #ffffff;
+            --card:    #f1f5f9;
+            --border:  #cbd5e1;
+            --accent:  #ea580c;
+            --accent2: #2563eb;
+            --green:   #16a34a;
+            --red:     #dc2626;
+            --yellow:  #d97706;
+            --text:    #0f172a;
+            --muted:   #64748b;
+        }
+
         body {
             font-family: 'Segoe UI', system-ui, sans-serif;
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
+            transition: background 0.2s, color 0.2s;
         }
 
         /* ── Header ── */
@@ -383,6 +398,50 @@
             margin-top: 10px;
             cursor: pointer;
         }
+
+        /* ── Filter Pills & Tags ── */
+        .filter-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+            align-items: center;
+        }
+        .filter-pill {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 99px;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .filter-pill:hover, .filter-pill.active {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        .tag-pill {
+            background: rgba(79, 142, 247, 0.15);
+            color: #93c5fd;
+            border: 1px solid rgba(79, 142, 247, 0.3);
+            border-radius: 99px;
+            padding: 2px 8px;
+            font-size: 11px;
+            display: inline-block;
+            margin-right: 4px;
+        }
+
+        /* ── Print / PDF Report Styling ── */
+        @media print {
+            body { background: #fff !important; color: #000 !important; }
+            header, .nav-btns, .stats-bar, .panel, .modal-close, #search-input, .actions, .filter-pills, .btn { display: none !important; }
+            .modal-overlay { position: static !important; background: none !important; display: block !important; padding: 0 !important; }
+            .modal { max-width: 100% !important; border: none !important; box-shadow: none !important; background: #fff !important; color: #000 !important; }
+            .diff-col pre { background: #f8fafc !important; color: #000 !important; border: 1px solid #ddd !important; max-height: none !important; }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -391,6 +450,8 @@
 <header>
     <div class="logo">🔍 Website<span>Watch</span></div>
     <div class="nav-btns">
+        <button class="btn btn-secondary btn-sm" id="theme-toggle-btn" onclick="toggleTheme()" title="Switch dark/light theme">☀️ Light</button>
+        <button class="btn btn-secondary btn-sm" id="notif-toggle-btn" onclick="toggleDesktopAlerts()" title="Enable or disable live desktop notifications">🔔 Alerts: Off</button>
         <a href="/api/rss" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📡 RSS</a>
         <a href="/api/export/csv" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📊 CSV</a>
         <button class="btn btn-secondary btn-sm" onclick="exportSites()">⬇ Export</button>
@@ -468,6 +529,10 @@
                 <label>Keyword-Only Alerts (optional — comma-separated; alerts trigger ONLY if diff contains these words)</label>
                 <input type="text" id="f-keywords" placeholder="e.g. price, out of stock, sale, discount, 50%">
             </div>
+            <div class="form-group full">
+                <label>Tags / Categories (optional — comma-separated, e.g. e-commerce, competitors, pricing)</label>
+                <input type="text" id="f-tags" placeholder="e.g. ecommerce, pricing, critical">
+            </div>
 
             <!-- Advanced: alerts section -->
             <div class="form-group full">
@@ -512,6 +577,7 @@
                         <div style="display:flex;gap:8px;margin-top:6px">
                             <input type="text" id="f-watch-input" placeholder=".main-content, #prices">
                             <button class="btn btn-secondary btn-sm" onclick="addWatchSelector()">+ Add</button>
+                            <button class="btn btn-secondary btn-sm" type="button" onclick="testSelectorInput('watch')" title="Test selector against live URL">🧪 Test</button>
                             <button class="btn btn-blue btn-sm" onclick="openPickerModal('watch')">🎯 Picker</button>
                         </div>
                         <div class="selector-tags" id="watch-tags"></div>
@@ -520,6 +586,7 @@
                         <div style="display:flex;gap:8px;margin-top:6px">
                             <input type="text" id="f-ignore-input" placeholder=".ads, #cookie-banner">
                             <button class="btn btn-secondary btn-sm" onclick="addIgnoreSelector()">+ Add</button>
+                            <button class="btn btn-secondary btn-sm" type="button" onclick="testSelectorInput('ignore')" title="Test selector against live URL">🧪 Test</button>
                             <button class="btn btn-blue btn-sm" onclick="openPickerModal('ignore')">🎯 Picker</button>
                         </div>
                         <div class="selector-tags" id="ignore-tags"></div>
@@ -542,6 +609,7 @@
                 style="max-width:260px;font-size:13px;padding:6px 12px"
                 oninput="filterTable(this.value)">
         </div>
+        <div class="filter-pills" id="filter-pills-bar"></div>
         <div class="table-wrap">
             <table id="sites-table">
                 <thead>
@@ -573,7 +641,10 @@
     <div class="modal" style="max-width:960px;width:95%">
         <div class="modal-header">
             <h3>🔀 Version Diff Viewer</h3>
-            <button class="modal-close" onclick="closeDiffModal()">✕</button>
+            <div style="display:flex;gap:8px;align-items:center">
+                <button class="btn btn-secondary btn-sm" onclick="window.print()" title="Print or export as PDF report">🖨️ Print / PDF</button>
+                <button class="modal-close" onclick="closeDiffModal()">✕</button>
+            </div>
         </div>
         <div class="modal-body" id="diff-modal-body">
             <!-- filled dynamically -->
@@ -616,8 +687,14 @@
             <button class="modal-close" onclick="closeChartModal()">✕</button>
         </div>
         <div class="modal-body" style="padding:20px">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:12px" id="chart-desc">
-                Visualizing numeric/price changes tracked over time
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+                <div style="font-size:12px;color:var(--muted)" id="chart-desc">
+                    Visualizing numeric/price changes tracked over time
+                </div>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-primary btn-sm" id="btn-chart-metric" onclick="switchChartTab('metric')">📈 Values</button>
+                    <button class="btn btn-secondary btn-sm" id="btn-chart-latency" onclick="switchChartTab('latency')">⚡ Response Latency</button>
+                </div>
             </div>
             <div style="position:relative;height:320px;width:100%">
                 <canvas id="metrics-canvas"></canvas>
@@ -630,15 +707,112 @@
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-let sites           = [];
-let watchSelectors  = [];
-let ignoreSelectors = [];
-let pickerMode      = 'watch'; // 'watch' | 'ignore'
-let expandedRows    = {};      // siteId → bool
+let sites                  = [];
+let watchSelectors         = [];
+let ignoreSelectors        = [];
+let pickerMode             = 'watch'; // 'watch' | 'ignore'
+let expandedRows           = {};      // siteId → bool
+let currentFilter          = 'all';
+let filterQuery            = '';
+let desktopAlertsEnabled   = localStorage.getItem('wcd_desktop_alerts') === 'true';
+let knownChangedTimestamps = {};      // siteId -> lastChanged
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
+initTheme();
+initDesktopAlerts();
 loadSites();
 setInterval(loadSites, 30000); // auto-refresh every 30s
+
+// ── Theme Management ───────────────────────────────────────────────────────
+function initTheme() {
+    const saved = localStorage.getItem('wcd_theme') || 'dark';
+    if (saved === 'light') {
+        document.body.classList.add('light-theme');
+        const btn = document.getElementById('theme-toggle-btn');
+        if (btn) btn.textContent = '🌙 Dark';
+    }
+}
+
+function toggleTheme() {
+    const isLight = document.body.classList.toggle('light-theme');
+    localStorage.setItem('wcd_theme', isLight ? 'light' : 'dark');
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = isLight ? '🌙 Dark' : '☀️ Light';
+}
+
+// ── Desktop Alerts & Web Audio Chime ───────────────────────────────────────
+function initDesktopAlerts() {
+    updateAlertButton();
+}
+
+function updateAlertButton() {
+    const btn = document.getElementById('notif-toggle-btn');
+    if (btn) {
+        btn.textContent = desktopAlertsEnabled ? '🔔 Alerts: On' : '🔕 Alerts: Off';
+        btn.className = desktopAlertsEnabled ? 'btn btn-blue btn-sm' : 'btn btn-secondary btn-sm';
+    }
+}
+
+async function toggleDesktopAlerts() {
+    if (!desktopAlertsEnabled) {
+        if ('Notification' in window) {
+            const perm = await Notification.requestPermission();
+            if (perm === 'granted') {
+                desktopAlertsEnabled = true;
+                localStorage.setItem('wcd_desktop_alerts', 'true');
+                toast('Desktop alerts activated with sound!', 'success');
+                playNotificationChime();
+            } else {
+                toast('Notification permission was denied', 'error');
+                desktopAlertsEnabled = false;
+                localStorage.setItem('wcd_desktop_alerts', 'false');
+            }
+        } else {
+            toast('Browser does not support Notifications', 'error');
+        }
+    } else {
+        desktopAlertsEnabled = false;
+        localStorage.setItem('wcd_desktop_alerts', 'false');
+        toast('Desktop alerts turned off', 'info');
+    }
+    updateAlertButton();
+}
+
+function playNotificationChime() {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880.00, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+    } catch (_) {}
+}
+
+function checkChangesForAlerts(newSites) {
+    newSites.forEach(s => {
+        if (!s.lastChanged || s.lastChanged === 'Never') return;
+        const prev = knownChangedTimestamps[s.id];
+        if (prev && prev !== s.lastChanged && desktopAlertsEnabled) {
+            playNotificationChime();
+            if (Notification.permission === 'granted') {
+                new Notification('🚨 Website Change Detected!', {
+                    body: `${s.name || s.url} updated at ${s.lastChanged}`,
+                    icon: '/favicon.ico'
+                });
+            }
+        }
+        knownChangedTimestamps[s.id] = s.lastChanged;
+    });
+}
 
 // ── Toast ──────────────────────────────────────────────────────────────────
 function toast(msg, type = 'info') {
@@ -662,14 +836,67 @@ async function loadSites() {
     try {
         sites = await api('GET', '/api/sites');
         renderStats(sites);
-        if (filterQuery) {
-            filterTable(filterQuery);
-        } else {
-            renderTable(sites);
-        }
+        checkChangesForAlerts(sites);
+        applyFilters();
     } catch (e) {
         toast('Failed to load sites: ' + e.message, 'error');
     }
+}
+
+function selectFilterPill(filter) {
+    currentFilter = filter;
+    applyFilters();
+}
+
+function renderFilterPills() {
+    const bar = document.getElementById('filter-pills-bar');
+    if (!bar) return;
+    const total = sites.length;
+    const okCount = sites.filter(s => s.status === 'OK' && !s.paused).length;
+    const changedCount = sites.filter(s => s.history && s.history.length > 0).length;
+    const pausedCount = sites.filter(s => s.paused).length;
+    const errorCount = sites.filter(s => s.status === 'ERROR' || s.status === 'BLOCKED').length;
+
+    const tagSet = new Set();
+    sites.forEach(s => (s.tags || []).forEach(t => tagSet.add(t)));
+    const tags = Array.from(tagSet);
+
+    let html = `
+        <button class="filter-pill ${currentFilter === 'all' ? 'active' : ''}" onclick="selectFilterPill('all')">All (${total})</button>
+        <button class="filter-pill ${currentFilter === 'ok' ? 'active' : ''}" onclick="selectFilterPill('ok')">🟢 OK (${okCount})</button>
+        <button class="filter-pill ${currentFilter === 'changed' ? 'active' : ''}" onclick="selectFilterPill('changed')">🔄 Has Changes (${changedCount})</button>
+        <button class="filter-pill ${currentFilter === 'paused' ? 'active' : ''}" onclick="selectFilterPill('paused')">⏸ Paused (${pausedCount})</button>
+        <button class="filter-pill ${currentFilter === 'errors' ? 'active' : ''}" onclick="selectFilterPill('errors')">⚠️ Issues (${errorCount})</button>
+    `;
+
+    tags.forEach(t => {
+        const count = sites.filter(s => (s.tags || []).includes(t)).length;
+        html += `<button class="filter-pill ${currentFilter === 'tag:' + t ? 'active' : ''}" onclick="selectFilterPill('tag:${escAttr(t)}')">#${escHtml(t)} (${count})</button>`;
+    });
+
+    bar.innerHTML = html;
+}
+
+function applyFilters() {
+    renderFilterPills();
+    let filtered = sites;
+    if (currentFilter === 'ok') filtered = filtered.filter(s => s.status === 'OK' && !s.paused);
+    else if (currentFilter === 'changed') filtered = filtered.filter(s => s.history && s.history.length > 0);
+    else if (currentFilter === 'paused') filtered = filtered.filter(s => s.paused);
+    else if (currentFilter === 'errors') filtered = filtered.filter(s => s.status === 'ERROR' || s.status === 'BLOCKED');
+    else if (currentFilter.startsWith('tag:')) {
+        const tag = currentFilter.slice(4);
+        filtered = filtered.filter(s => (s.tags || []).includes(tag));
+    }
+
+    if (filterQuery) {
+        filtered = filtered.filter(s =>
+            (s.name || s.url).toLowerCase().includes(filterQuery) ||
+            s.url.toLowerCase().includes(filterQuery) ||
+            (s.tags || []).some(t => t.toLowerCase().includes(filterQuery))
+        );
+    }
+    renderTable(filtered);
 }
 
 function renderStats(sites) {
@@ -694,27 +921,40 @@ function statusBadge(site) {
     return `<span class="badge badge-${cls}">${site.status || 'PENDING'}</span>`;
 }
 
-function renderTable(sites) {
+function renderTable(sitesToRender) {
     const tbody = document.getElementById('sites-tbody');
-    if (!sites.length) {
+    if (!sitesToRender.length) {
         tbody.innerHTML = `<tr><td colspan="6">
             <div class="empty-state">
                 <div class="icon">🕵️</div>
-                <div>No sites monitored yet.<br>Click <strong>+ Add Site</strong> to begin.</div>
+                <div>No sites matched current criteria.<br>Click <strong>+ Add Site</strong> or reset filters.</div>
             </div>
         </td></tr>`;
         return;
     }
 
-    tbody.innerHTML = sites.map(s => {
+    tbody.innerHTML = sitesToRender.map(s => {
         const expanded = expandedRows[s.id];
+        const tagsHtml = (s.tags && s.tags.length)
+            ? `<div style="margin-top:4px">${s.tags.map(t => `<span class="tag-pill" style="cursor:pointer" onclick="selectFilterPill('tag:${escAttr(t)}')">#${escHtml(t)}</span>`).join('')}</div>`
+            : '';
+
+        const latencyBadge = s.responseTimeMs
+            ? `<div style="margin-top:4px"><span style="font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(79,142,247,.15);color:var(--accent2);font-weight:600">⚡ ${s.responseTimeMs}ms</span></div>`
+            : '';
+
         const rows = [`
             <tr>
                 <td>
                     <div style="font-weight:600">${escHtml(s.name || s.url)}</div>
                     <div class="url-cell" style="color:var(--muted);font-size:12px" title="${escHtml(s.url)}">${escHtml(s.url)}</div>
+                    ${tagsHtml}
                 </td>
-                <td>${statusBadge(s)}${s.status === 'ERROR' ? `<div style="font-size:11px;color:var(--red);margin-top:4px">${escHtml((s.lastError||'').slice(0,60))}</div>` : ''}</td>
+                <td>
+                    ${statusBadge(s)}
+                    ${latencyBadge}
+                    ${s.status === 'ERROR' ? `<div style="font-size:11px;color:var(--red);margin-top:4px">${escHtml((s.lastError||'').slice(0,60))}</div>` : ''}
+                </td>
                 <td style="font-size:12px;color:var(--muted)">${s.lastChecked || '—'}</td>
                 <td style="font-size:12px">${s.lastChanged || 'Never'}</td>
                 <td style="font-size:12px;color:var(--muted)">${fmtInterval(s.intervalMs)}</td>
@@ -770,6 +1010,7 @@ function renderTimeline(site) {
             <div class="tl-meta">
                 <div class="tl-time">
                     ${new Date(h.timestamp).toLocaleString()} · <span style="font-family:monospace;font-size:11px">${h.hash.slice(0,8)}</span>
+                    ${h.responseTimeMs ? ` · <span style="color:var(--accent2);font-weight:600">⚡ ${h.responseTimeMs}ms</span>` : ''}
                     ${h.matchedKeyword ? `<span class="kw-pill">🎯 ${escHtml(h.matchedKeyword)}</span>` : ''}
                 </div>
                 ${h.summary ? `<div class="ai-summary">🤖 <strong>AI Summary:</strong> ${escHtml(h.summary)}</div>` : ''}
@@ -838,6 +1079,7 @@ function editSite(id) {
     document.getElementById('f-sens-val').textContent = s.sensitivity || 20;
     document.getElementById('f-email').value = s.email || '';
     document.getElementById('f-keywords').value = (s.keywords || []).join(', ');
+    document.getElementById('f-tags').value = (s.tags || []).join(', ');
     document.getElementById('f-tg-token').value = s.telegramToken || '';
     document.getElementById('f-tg-chat').value = s.telegramChatId || '';
     document.getElementById('f-discord').value = s.discordWebhook || '';
@@ -898,6 +1140,7 @@ async function submitTrack() {
         sensitivity:     Number(document.getElementById('f-sensitivity').value),
         email:           document.getElementById('f-email').value.trim(),
         keywords:        document.getElementById('f-keywords').value.trim(),
+        tags:            document.getElementById('f-tags').value.trim(),
         telegramToken:   document.getElementById('f-tg-token').value.trim(),
         telegramChatId:  document.getElementById('f-tg-chat').value.trim(),
         discordWebhook:  document.getElementById('f-discord').value.trim(),
@@ -930,7 +1173,7 @@ async function submitTrack() {
 }
 
 function resetForm() {
-    ['f-name','f-url','f-email','f-keywords','f-tg-token','f-tg-chat','f-discord','f-webhook'].forEach(id => {
+    ['f-name','f-url','f-email','f-keywords','f-tags','f-tg-token','f-tg-chat','f-discord','f-webhook'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -974,6 +1217,29 @@ function renderSelectorTags() {
             </span>`
         ).join('');
     });
+}
+
+async function testSelectorInput(type) {
+    const url = document.getElementById('f-url').value.trim();
+    if (!url) { toast('Please enter a target URL first', 'error'); return; }
+    const inputId = type === 'watch' ? 'f-watch-input' : 'f-ignore-input';
+    const selector = document.getElementById(inputId).value.trim();
+    if (!selector) { toast(`Enter a CSS selector to test in the ${type} input`, 'error'); return; }
+
+    toast(`Evaluating "${selector}" with headless browser...`, 'info');
+    try {
+        const res = await api('POST', '/api/test-selector', { url, selector });
+        if (res.error) {
+            toast('Selector test failed: ' + res.error, 'error');
+        } else if (res.count === 0) {
+            toast(`⚠️ No elements matched selector "${selector}" on page.`, 'error');
+        } else {
+            const preview = res.text ? ` ("${res.text.slice(0, 50)}${res.text.length > 50 ? '...' : ''}")` : '';
+            toast(`✅ Matched ${res.count} element(s) <${res.tagName}>${preview}`, 'success');
+        }
+    } catch (e) {
+        toast('Selector test failed: ' + e.message, 'error');
+    }
 }
 
 // ── Selector Picker modal ──────────────────────────────────────────────────
@@ -1176,80 +1442,148 @@ async function importSites(event) {
     event.target.value = ''; // reset file input
 }
 
-// ── Metric Chart Modal ─────────────────────────────────────────────────────
+// ── Metric & Latency Chart Modal ───────────────────────────────────────────
 let metricsChartInstance = null;
+let currentChartSiteId = null;
+let currentChartSiteName = '';
+let currentChartTab = 'metric'; // 'metric' | 'latency'
+
+function switchChartTab(tab) {
+    currentChartTab = tab;
+    const btnMetric = document.getElementById('btn-chart-metric');
+    const btnLatency = document.getElementById('btn-chart-latency');
+    if (btnMetric) btnMetric.className = tab === 'metric' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    if (btnLatency) btnLatency.className = tab === 'latency' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    if (currentChartSiteId) {
+        renderChartData(currentChartSiteId, currentChartSiteName);
+    }
+}
 
 async function openMetricsChart(siteId, siteName) {
+    currentChartSiteId = siteId;
+    currentChartSiteName = siteName;
+    currentChartTab = 'metric';
+    const btnMetric = document.getElementById('btn-chart-metric');
+    const btnLatency = document.getElementById('btn-chart-latency');
+    if (btnMetric) btnMetric.className = 'btn btn-primary btn-sm';
+    if (btnLatency) btnLatency.className = 'btn btn-secondary btn-sm';
     document.getElementById('chart-title').textContent = `📈 Trend Tracking — ${siteName}`;
     document.getElementById('chart-modal').classList.add('open');
+    await renderChartData(siteId, siteName);
+}
+
+async function renderChartData(siteId, siteName) {
+    const canvas = document.getElementById('metrics-canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (metricsChartInstance) {
+        metricsChartInstance.destroy();
+        metricsChartInstance = null;
+    }
 
     try {
-        const metrics = await api('GET', `/api/sites/${siteId}/metrics`);
-        const canvas = document.getElementById('metrics-canvas');
-        const ctx = canvas.getContext('2d');
+        if (currentChartTab === 'metric') {
+            document.getElementById('chart-desc').textContent = 'Visualizing numerical/price changes tracked over time';
+            const metrics = await api('GET', `/api/sites/${siteId}/metrics`);
 
-        if (metricsChartInstance) {
-            metricsChartInstance.destroy();
-            metricsChartInstance = null;
-        }
-
-        if (!metrics || metrics.length === 0) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.font = '14px sans-serif';
-            ctx.fillStyle = '#8892a4';
-            ctx.textAlign = 'center';
-            ctx.fillText('No numerical/price values tracked yet for this page.', canvas.width / 2, canvas.height / 2 || 150);
-            return;
-        }
-
-        const labels = metrics.map(m => new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-        const data = metrics.map(m => m.value);
-
-        metricsChartInstance = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [{
-                    label: 'Numeric Value',
-                    data,
-                    borderColor: '#ff7700',
-                    backgroundColor: 'rgba(255, 119, 0, 0.15)',
-                    fill: true,
-                    tension: 0.25,
-                    pointRadius: 4,
-                    pointHoverRadius: 6,
-                    pointBackgroundColor: '#ff7700',
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        ticks: { color: '#8892a4', maxTicksLimit: 8 },
-                        grid: { color: '#2e3150' }
-                    },
-                    y: {
-                        ticks: { color: '#8892a4' },
-                        grid: { color: '#2e3150' }
-                    }
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: '#1a1d27',
-                        titleColor: '#ff7700',
-                        bodyColor: '#e2e8f0',
-                        borderColor: '#2e3150',
-                        borderWidth: 1
-                    }
-                }
+            if (!metrics || metrics.length === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#8892a4';
+                ctx.textAlign = 'center';
+                ctx.fillText('No numerical/price values tracked yet for this page.', canvas.width / 2, 150);
+                return;
             }
-        });
+
+            const labels = metrics.map(m => new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            const data = metrics.map(m => m.value);
+
+            metricsChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Tracked Value',
+                        data,
+                        borderColor: '#ff7700',
+                        backgroundColor: 'rgba(255, 119, 0, 0.15)',
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#ff7700',
+                        borderWidth: 2
+                    }]
+                },
+                options: getChartOptions('Tracked Value')
+            });
+        } else {
+            document.getElementById('chart-desc').textContent = 'Visualizing HTTP response latency (ms) per health check';
+            const latencyData = await api('GET', `/api/sites/${siteId}/latency`);
+
+            if (!latencyData || latencyData.length === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#8892a4';
+                ctx.textAlign = 'center';
+                ctx.fillText('No latency data recorded yet for this page.', canvas.width / 2, 150);
+                return;
+            }
+
+            const labels = latencyData.map(l => new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            const data = latencyData.map(l => l.ms);
+
+            metricsChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Response Time (ms)',
+                        data,
+                        borderColor: '#4f8ef7',
+                        backgroundColor: 'rgba(79, 142, 247, 0.15)',
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#4f8ef7',
+                        borderWidth: 2
+                    }]
+                },
+                options: getChartOptions('Response Latency (ms)')
+            });
+        }
     } catch (e) {
-        toast('Failed to load metrics: ' + e.message, 'error');
+        toast('Failed to load chart data: ' + e.message, 'error');
     }
+}
+
+function getChartOptions(yLabel) {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            x: {
+                ticks: { color: '#8892a4', maxTicksLimit: 8 },
+                grid: { color: 'rgba(100, 116, 139, 0.2)' }
+            },
+            y: {
+                ticks: { color: '#8892a4' },
+                grid: { color: 'rgba(100, 116, 139, 0.2)' },
+                title: { display: true, text: yLabel, color: '#8892a4' }
+            }
+        },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: '#1a1d27',
+                titleColor: '#ff7700',
+                bodyColor: '#e2e8f0',
+                borderColor: '#2e3150',
+                borderWidth: 1
+            }
+        }
+    };
 }
 
 function closeChartModal() {

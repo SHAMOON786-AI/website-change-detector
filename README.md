@@ -15,6 +15,12 @@ The link for the website is:- https://washday-other-resend.ngrok-free.dev
 | **Sensitivity threshold** | Min characters changed before triggering an alert |
 | **Watch / Ignore selectors** | Scope monitoring to specific CSS regions, exclude noise elements |
 | **Visual Selector Proxy** | Interactive click-to-pick CSS selector inspector bypassing CSP (`/api/proxy`) |
+| **🧪 Live Selector Evaluator** | Instant headless Chromium selector verification with preview & element count (`/api/test-selector`) |
+| **⚡ Response Latency & Uptime**| Tracks HTTP response times (ms) per check, displayed on cards + Chart.js trend toggle |
+| **🔔 Desktop Alerts & Sound Chime**| Browser Web Notifications + synthesized Web Audio chime on newly detected changes |
+| **🏷️ Tags & Multi-Criteria Filtering** | Filter pills by status (`OK`, `Has Changes`, `Paused`, `Issues`) and customized category `#tags` |
+| **☀️ Dark & Light Theme** | 1-click theme switcher with instant `localStorage` persistence |
+| **🖨️ Printable / PDF Change Report**| `@media print` layout formatting for clean executive change reports & PDF exports |
 | **Text diff** | Coloured `[+]` / `[-]` line diffs via `diffLines` |
 | **Screenshot diff** | Pixel-level diff images via Jimp + interactive Before/After wipe comparison slider |
 | **CAPTCHA / block detection** | Automatically flags blocked sites as `BLOCKED` |
@@ -153,7 +159,7 @@ website-change-detector/
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/track` | Register or update a site (supports keywords & selectors) |
+| `POST` | `/api/track` | Register or update a site (supports keywords, tags & selectors) |
 | `GET` | `/api/sites` | List all sites |
 | `GET` | `/api/sites/:id` | Get a single site |
 | `DELETE` | `/api/sites/:id` | Remove a site |
@@ -163,6 +169,8 @@ website-change-detector/
 | `POST` | `/api/sites/:id/compare` | Compare two versions |
 | `PATCH` | `/api/sites/:id/selectors` | Update watch/ignore selectors |
 | `GET` | `/api/sites/:id/metrics` | Retrieve numeric / price tracking history for charts |
+| `GET` | `/api/sites/:id/latency` | Retrieve HTTP response latency (ms) history for charts |
+| `POST` | `/api/test-selector` | Headless Chromium evaluation of CSS selector against target URL |
 | `GET` | `/api/sites/:id/rss` | RSS 2.0 XML feed for this site |
 | `GET` | `/api/rss` | Aggregated RSS 2.0 XML feed across all sites |
 | `GET` | `/api/proxy` | Server proxy with injected interactive visual selector inspector |
@@ -184,6 +192,7 @@ website-change-detector/
   "name":            "My Site",
   "intervalMs":      3600000,
   "sensitivity":     20,
+  "tags":            ["ecommerce", "pricing"],
   "watchSelectors":  [".main-content"],
   "ignoreSelectors": [".ads", "#cookie-banner"],
   "email":           "you@gmail.com",

@@ -381,6 +381,9 @@ async function checkWebsite(site, attempt = 1) {
             '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         );
 
+        // Measure page response latency
+        const navStartTime = Date.now();
+
         // Resilient navigation: domcontentloaded with retry for client-side redirection
         try {
             await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 35000 });
@@ -392,6 +395,11 @@ async function checkWebsite(site, attempt = 1) {
                 throw gotoErr;
             }
         }
+
+        site.responseTimeMs = Date.now() - navStartTime;
+        if (!site.responseTimes) site.responseTimes = [];
+        site.responseTimes.push({ timestamp: new Date().toISOString(), ms: site.responseTimeMs });
+        if (site.responseTimes.length > 50) site.responseTimes = site.responseTimes.slice(-50);
 
         // Small wait buffer to allow SPA / dynamic JS hydration to complete
         await new Promise(r => setTimeout(r, 2500));
@@ -499,7 +507,7 @@ async function checkWebsite(site, attempt = 1) {
                     }
                 }
 
-                // History entry with AI summary and keyword info
+                // History entry with AI summary, keyword info and latency
                 const historyEntry = {
                     id:             generateHash(screenshotName),
                     timestamp:      new Date().toISOString(),
@@ -507,6 +515,7 @@ async function checkWebsite(site, attempt = 1) {
                     diff:           diffText,
                     summary:        aiSummary,
                     matchedKeyword: matchedKeyword || null,
+                    responseTimeMs: site.responseTimeMs || null,
                     screenshot:     screenshotName,
                     diffScreenshot: diffScreenshotPath ? path.basename(diffScreenshotPath) : null
                 };
@@ -659,7 +668,7 @@ app.post('/api/track', async (req, res) => {
     const {
         id, url, name, intervalMs, selector, watchSelectors, ignoreSelectors,
         email, telegramToken, telegramChatId, discordWebhook, webhookUrl, sensitivity,
-        keywords
+        keywords, tags
     } = req.body;
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
@@ -671,6 +680,10 @@ app.post('/api/track', async (req, res) => {
     const parsedKeywords = Array.isArray(keywords)
         ? keywords.map(k => String(k).trim()).filter(Boolean)
         : (typeof keywords === 'string' ? keywords.split(',').map(k => k.trim()).filter(Boolean) : []);
+
+    const parsedTags = Array.isArray(tags)
+        ? tags.map(t => String(t).trim().toLowerCase()).filter(Boolean)
+        : (typeof tags === 'string' ? tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean) : []);
 
     // Find existing site by ID if provided, otherwise by URL
     let site = (id ? watchedSites.find(s => s.id === id) : null) || watchedSites.find(s => s.url === url);
@@ -685,7 +698,10 @@ app.post('/api/track', async (req, res) => {
             watchSelectors:  Array.isArray(watchSelectors)  ? watchSelectors  : (selector ? [selector] : []),
             ignoreSelectors: Array.isArray(ignoreSelectors) ? ignoreSelectors : [],
             keywords:        parsedKeywords,
+            tags:            parsedTags,
             metrics:         [],
+            responseTimeMs:  null,
+            responseTimes:   [],
             email:           email || '',
             telegramToken:   telegramToken   || '',
             telegramChatId:  telegramChatId  || '',
@@ -715,6 +731,7 @@ app.post('/api/track', async (req, res) => {
         if (watchSelectors !== undefined)  site.watchSelectors  = Array.isArray(watchSelectors) ? watchSelectors : (selector ? [selector] : []);
         if (ignoreSelectors !== undefined) site.ignoreSelectors = Array.isArray(ignoreSelectors) ? ignoreSelectors : [];
         if (keywords !== undefined)        site.keywords        = parsedKeywords;
+        if (tags !== undefined)            site.tags            = parsedTags;
         if (email !== undefined)           site.email           = email;
         if (telegramToken !== undefined)   site.telegramToken   = telegramToken;
         if (telegramChatId !== undefined)  site.telegramChatId  = telegramChatId;
@@ -801,6 +818,13 @@ app.get('/api/sites/:id/metrics', (req, res) => {
     const site = watchedSites.find(s => s.id === req.params.id);
     if (!site) return res.status(404).json({ error: 'Site not found' });
     res.json(site.metrics || []);
+});
+
+/** GET /api/sites/:id/latency — return response latency history for charts */
+app.get('/api/sites/:id/latency', (req, res) => {
+    const site = watchedSites.find(s => s.id === req.params.id);
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    res.json(site.responseTimes || []);
 });
 
 /** GET /api/sites/:id/rss — RSS 2.0 XML feed for an individual site */
@@ -1156,6 +1180,68 @@ app.post('/api/test-alert', async (req, res) => {
         res.json({ success: true, message: `Test ${type} alert dispatched successfully!` });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+/** POST /api/test-selector — live evaluate a selector against target URL */
+app.post('/api/test-selector', async (req, res) => {
+    const { url, selector } = req.body;
+    if (!url || !selector) return res.status(400).json({ error: 'URL and selector are required' });
+    if (hasCredentialsInUrl(url)) return res.status(400).json({ error: 'Credentials in URL not permitted' });
+
+    let browser;
+    try {
+        const launchOptions = {
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+        };
+        if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+            launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+        }
+        browser = await puppeteer.launch(launchOptions);
+        const page = await browser.newPage();
+        await page.setUserAgent(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        );
+
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await new Promise(r => setTimeout(r, 1500));
+
+        const testResult = await page.evaluate((sel) => {
+            try {
+                const nodes = document.querySelectorAll(sel);
+                if (!nodes || nodes.length === 0) return { count: 0, text: '', tagName: null };
+                const first = nodes[0];
+                const text = (first.innerText || first.textContent || '').trim().slice(0, 250);
+                return {
+                    count: nodes.length,
+                    text,
+                    tagName: first.tagName.toLowerCase(),
+                    className: first.className && typeof first.className === 'string' ? first.className : ''
+                };
+            } catch (evalErr) {
+                return { count: -1, error: evalErr.message };
+            }
+        }, selector);
+
+        await browser.close();
+
+        if (testResult.count === -1) {
+            return res.status(400).json({ error: 'Invalid CSS selector syntax: ' + testResult.error });
+        }
+
+        res.json({
+            success: true,
+            count: testResult.count,
+            text: testResult.text,
+            tagName: testResult.tagName,
+            className: testResult.className
+        });
+
+    } catch (err) {
+        if (browser) await browser.close().catch(() => {});
+        res.status(500).json({ error: 'Could not test selector: ' + err.message });
     }
 });
 
