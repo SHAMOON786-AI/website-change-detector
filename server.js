@@ -225,10 +225,22 @@ async function checkWebsite(site, attempt = 1) {
     const MAX_ATTEMPTS = 3;
     let browser;
     try {
-        browser = await puppeteer.launch({
+        const launchOptions = {
             headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-        });
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--single-process'
+            ]
+        };
+        // On Railway/cloud: use system Chromium via env var
+        if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+            launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+        }
+        browser = await puppeteer.launch(launchOptions);
         const page = await browser.newPage();
 
         // Set a realistic user-agent to reduce bot blocks
