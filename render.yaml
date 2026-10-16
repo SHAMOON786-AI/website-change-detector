@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: website-change-detector
+    env: docker
+    plan: free
+    region: oregon
+    branch: master
+    envVars:
+      - key: PORT
+        value: 3000
