@@ -448,12 +448,18 @@
 <body>
 
 <header>
-    <div class="logo">🔍 Website<span>Watch</span></div>
+    <div style="display:flex;align-items:center;gap:12px">
+        <div class="logo">🔍 Website<span>Watch</span></div>
+        <button class="btn btn-secondary btn-sm" id="backend-status-btn" onclick="configureBackend()" title="Click to change backend URL" style="display:none;font-size:11px;font-family:monospace;padding:3px 8px;border-radius:20px;align-items:center;gap:5px">
+            <span class="status-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green)"></span>
+            <span class="status-text">Backend: Online</span>
+        </button>
+    </div>
     <div class="nav-btns">
         <button class="btn btn-secondary btn-sm" id="theme-toggle-btn" onclick="toggleTheme()" title="Switch dark/light theme">☀️ Light</button>
         <button class="btn btn-secondary btn-sm" id="notif-toggle-btn" onclick="toggleDesktopAlerts()" title="Enable or disable live desktop notifications">🔔 Alerts: Off</button>
-        <a href="/api/rss" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📡 RSS</a>
-        <a href="/api/export/csv" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📊 CSV</a>
+        <a href="javascript:void(0)" onclick="window.open(getApiUrl('/api/rss'), '_blank')" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📡 RSS</a>
+        <a href="javascript:void(0)" onclick="window.open(getApiUrl('/api/export/csv'), '_blank')" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📊 CSV</a>
         <button class="btn btn-secondary btn-sm" onclick="exportSites()">⬇ Export</button>
         <label class="btn btn-secondary btn-sm" style="cursor:pointer">
             ⬆ Import
@@ -838,10 +844,49 @@ function toast(msg, type = 'info') {
 }
 
 // ── API helpers ────────────────────────────────────────────────────────────
+function getApiUrl(path) {
+    if (!path) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    const isGitHubPages = window.location.hostname.includes('github.io') || window.location.protocol === 'file:';
+    const base = localStorage.getItem('API_BASE_URL') || (isGitHubPages ? 'https://washday-other-resend.ngrok-free.dev' : '');
+    const cleanPath = path.startsWith('/') ? path : '/' + path;
+    return base ? (base.replace(/\/+$/, '') + cleanPath) : cleanPath;
+}
+
+function updateBackendStatus(online) {
+    const btn = document.getElementById('backend-status-btn');
+    if (!btn) return;
+    const isGitHubPages = window.location.hostname.includes('github.io') || window.location.protocol === 'file:' || localStorage.getItem('API_BASE_URL');
+    if (!isGitHubPages) {
+        btn.style.display = 'none';
+        return;
+    }
+    btn.style.display = 'inline-flex';
+    const dot = btn.querySelector('.status-dot');
+    const text = btn.querySelector('.status-text');
+    if (online) {
+        if (dot) dot.style.background = 'var(--green)';
+        if (text) text.textContent = 'Backend: Online';
+    } else {
+        if (dot) dot.style.background = 'var(--red)';
+        if (text) text.textContent = 'Backend: Offline (click to configure)';
+    }
+}
+
+function configureBackend() {
+    const current = getApiUrl('').replace(/\/+$/, '');
+    const updated = prompt('Configure Backend Server URL (e.g. ngrok or cloud URL):', current);
+    if (updated !== null && updated.trim()) {
+        localStorage.setItem('API_BASE_URL', updated.trim().replace(/\/+$/, ''));
+        toast('Backend URL updated! Connecting...', 'info');
+        setTimeout(() => location.reload(), 800);
+    }
+}
+
 async function api(method, path, body) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
-    const r = await fetch(path, opts);
+    const r = await fetch(getApiUrl(path), opts);
     return r.json();
 }
 
@@ -849,10 +894,12 @@ async function api(method, path, body) {
 async function loadSites() {
     try {
         sites = await api('GET', '/api/sites');
+        updateBackendStatus(true);
         renderStats(sites);
         checkChangesForAlerts(sites);
         applyFilters();
     } catch (e) {
+        updateBackendStatus(false);
         toast('Failed to load sites: ' + e.message, 'error');
     }
 }
@@ -980,7 +1027,7 @@ function renderTable(sitesToRender) {
                         </button>
                         <button class="btn btn-secondary btn-sm" onclick="editSite('${s.id}')" title="Edit site settings">✏️ Edit</button>
                         <button class="btn btn-secondary btn-sm" onclick="openMetricsChart('${s.id}', '${escAttr(s.name||s.url)}')">📈 Chart</button>
-                        <a href="/api/sites/${s.id}/rss" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none" title="Site RSS Feed">📡 RSS</a>
+                        <a href="${getApiUrl('/api/sites/' + s.id + '/rss')}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none" title="Site RSS Feed">📡 RSS</a>
                         <button class="btn btn-blue btn-sm" onclick="toggleHistory('${s.id}')">
                             ${expanded ? '▲' : '▼'} History${s.history && s.history.length ? ` (${s.history.length})` : ''}
                         </button>
@@ -995,7 +1042,7 @@ function renderTable(sitesToRender) {
                     <div class="history-inner">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;margin-bottom:8px">
                             <div style="font-size:13px;font-weight:700">Version Timeline</div>
-                            <a href="/api/sites/${s.id}/export/csv" class="btn btn-secondary btn-sm" style="text-decoration:none">📊 Export Timeline (CSV)</a>
+                            <a href="${getApiUrl('/api/sites/' + s.id + '/export/csv')}" class="btn btn-secondary btn-sm" style="text-decoration:none">📊 Export Timeline (CSV)</a>
                         </div>
                         ${renderTimeline(s)}
                     </div>
@@ -1030,12 +1077,12 @@ function renderTimeline(site) {
                 ${h.summary ? `<div class="ai-summary">🤖 <strong>AI Summary:</strong> ${escHtml(h.summary)}</div>` : ''}
                 <div class="tl-diff"><code>${diffHtml || '(No diff recorded)'}</code></div>
                 <div class="tl-actions">
-                    ${h.screenshot ? `<button class="btn btn-secondary btn-sm" onclick="openScreenshot('/snapshots/${h.screenshot}')">📷 Screenshot</button>` : ''}
-                    ${h.diffScreenshot ? `<button class="btn btn-secondary btn-sm" onclick="openScreenshot('/snapshots/${h.diffScreenshot}')">🔀 Diff Image</button>` : ''}
+                    ${h.screenshot ? `<button class="btn btn-secondary btn-sm" onclick="openScreenshot('${getApiUrl('/snapshots/' + h.screenshot)}')">📷 Screenshot</button>` : ''}
+                    ${h.diffScreenshot ? `<button class="btn btn-secondary btn-sm" onclick="openScreenshot('${getApiUrl('/snapshots/' + h.diffScreenshot)}')">🔀 Diff Image</button>` : ''}
                     ${prevEntry ? `<button class="btn btn-blue btn-sm" onclick="openDiffModal('${site.id}','${h.id}','${prevEntry.id}')">⇄ Compare</button>` : ''}
                 </div>
             </div>
-            ${h.screenshot ? `<div class="tl-thumb"><img src="/snapshots/${h.screenshot}" alt="screenshot" onclick="openScreenshot('/snapshots/${h.screenshot}')"></div>` : ''}
+            ${h.screenshot ? `<div class="tl-thumb"><img src="${getApiUrl('/snapshots/' + h.screenshot)}" alt="screenshot" onclick="openScreenshot('${getApiUrl('/snapshots/' + h.screenshot)}')"></div>` : ''}
         </div>`;
     }).join('')}</div>`;
 }
@@ -1282,7 +1329,7 @@ function closePickerModal() {
 function loadPickerFrame() {
     const url = document.getElementById('picker-url-input').value.trim();
     if (!url) { toast('Enter a URL first', 'error'); return; }
-    document.getElementById('picker-iframe').src = '/api/proxy?url=' + encodeURIComponent(url);
+    document.getElementById('picker-iframe').src = getApiUrl('/api/proxy?url=' + encodeURIComponent(url));
     document.getElementById('picker-result').value = '';
     toast('Loading interactive visual inspector preview...', 'info');
 }
@@ -1370,11 +1417,11 @@ async function openDiffModal(siteId, vidA, vidB) {
             <div class="diff-columns">
                 <div class="diff-col">
                     <h4>OLDER VERSION (${r.a.hash.slice(0,8)})</h4>
-                    <pre>${r.screenshotA ? `<img src="/snapshots/${r.screenshotA}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.a.diff || '')}</pre>
+                    <pre>${r.screenshotA ? `<img src="${getApiUrl('/snapshots/' + r.screenshotA)}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.a.diff || '')}</pre>
                 </div>
                 <div class="diff-col">
                     <h4>NEWER VERSION (${r.b.hash.slice(0,8)})</h4>
-                    <pre>${r.screenshotB ? `<img src="/snapshots/${r.screenshotB}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.b.diff || '')}</pre>
+                    <pre>${r.screenshotB ? `<img src="${getApiUrl('/snapshots/' + r.screenshotB)}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.b.diff || '')}</pre>
                 </div>
             </div>
         </div>
@@ -1383,9 +1430,9 @@ async function openDiffModal(siteId, vidA, vidB) {
         <div id="diff-slider-view" style="display:none">
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Drag the slider horizontally to wipe between Older (left) and Newer (right):</div>
             <div class="slider-wrapper" id="slider-wrapper-el">
-                <img src="/snapshots/${r.screenshotB}" id="slider-base-img" alt="Newer Screenshot">
+                <img src="${getApiUrl('/snapshots/' + r.screenshotB)}" id="slider-base-img" alt="Newer Screenshot">
                 <div class="slider-overlay" id="slider-overlay-el" style="width:50%">
-                    <img src="/snapshots/${r.screenshotA}" id="slider-overlay-img" alt="Older Screenshot">
+                    <img src="${getApiUrl('/snapshots/' + r.screenshotA)}" id="slider-overlay-img" alt="Older Screenshot">
                 </div>
             </div>
             <input type="range" class="slider-range" min="0" max="100" value="50" oninput="updateDiffSlider(this.value)">
@@ -1394,7 +1441,7 @@ async function openDiffModal(siteId, vidA, vidB) {
         ${r.diffScreenshot ? `
         <div id="diff-pixel-view" style="display:none">
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Pixel-level differences highlighted in red/pink:</div>
-            <img src="/snapshots/${r.diffScreenshot}" style="max-width:100%;border-radius:6px;border:1px solid var(--border)">
+            <img src="${getApiUrl('/snapshots/' + r.diffScreenshot)}" style="max-width:100%;border-radius:6px;border:1px solid var(--border)">
         </div>` : ''}
     `;
     document.getElementById('diff-modal').classList.add('open');
@@ -1403,7 +1450,7 @@ async function openDiffModal(siteId, vidA, vidB) {
 function closeDiffModal() { document.getElementById('diff-modal').classList.remove('open'); }
 
 function openScreenshot(src) {
-    window.open(src, '_blank');
+    window.open(getApiUrl(src), '_blank');
 }
 
 // ── Collapsible sections ───────────────────────────────────────────────────
@@ -1437,7 +1484,7 @@ async function togglePause(id) {
 
 // ── Export / Import ────────────────────────────────────────────────────────
 function exportSites() {
-    window.open('/api/export', '_blank');
+    window.open(getApiUrl('/api/export'), '_blank');
 }
 
 async function importSites(event) {

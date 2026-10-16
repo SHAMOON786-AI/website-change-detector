@@ -1,7 +1,9 @@
 # 🔍 WebsiteWatch — Website Change Detector
 
 A self-hosted, full-stack tool that monitors public web pages and instantly alerts you to meaningful content changes — while ignoring noise like timestamps, counters, ads, and session tokens.
-The link for the website is:- https://washday-other-resend.ngrok-free.dev
+
+- **GitHub Pages Dashboard:** https://shamoon786-ai.github.io/website-change-detector/
+- **Backend API Endpoint:** https://washday-other-resend.ngrok-free.dev
 ---
 
 ## ✨ Features
