@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website Change Detector</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:      #0f1117;
+            --surface: #1a1d27;
+            --card:    #21253a;
+            --border:  #2e3150;
+            --accent:  #ff7700;
+            --accent2: #4f8ef7;
+            --green:   #22c55e;
+            --red:     #ef4444;
+            --yellow:  #f59e0b;
+            --text:    #e2e8f0;
+            --muted:   #8892a4;
+            --radius:  10px;
+        }
+
+        body.light-theme {
+            --bg:      #f8fafc;
+            --surface: #ffffff;
+            --card:    #f1f5f9;
+            --border:  #cbd5e1;
+            --accent:  #ea580c;
+            --accent2: #2563eb;
+            --green:   #16a34a;
+            --red:     #dc2626;
+            --yellow:  #d97706;
+            --text:    #0f172a;
+            --muted:   #64748b;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        /* ── Header ── */
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 60px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .logo { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+        .logo span { color: var(--text); }
+        .nav-btns { display: flex; gap: 10px; }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity .15s, transform .1s;
+        }
+        .btn:hover { opacity: .85; }
+        .btn:active { transform: scale(.97); }
+        .btn-primary   { background: var(--accent);  color: #fff; }
+        .btn-secondary { background: var(--border);  color: var(--text); }
+        .btn-danger    { background: var(--red);     color: #fff; }
+        .btn-blue      { background: var(--accent2); color: #fff; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+        /* ── Layout ── */
+        main { max-width: 1200px; margin: 0 auto; padding: 28px 24px; }
+
+        /* ── Stats bar ── */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px 20px;
+        }
+        .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+        .stat-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+
+        /* ── Add site panel ── */
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .panel-title {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 18px;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 5px; }
+        .form-group.full { grid-column: span 2; }
+        label { font-size: 12px; color: var(--muted); font-weight: 600; }
+        input, select, textarea {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            padding: 9px 12px;
+            font-size: 13px;
+            outline: none;
+            transition: border-color .2s;
+            width: 100%;
+        }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+        input[type=range] { padding: 4px 0; cursor: pointer; }
+        .range-row { display: flex; align-items: center; gap: 10px; }
+        .range-val { font-size: 13px; font-weight: 700; color: var(--accent); min-width: 40px; }
+
+        .collapsible-header {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            margin: 14px 0 10px;
+        }
+        .collapsible-header::before { content: '▶'; font-size: 10px; transition: transform .2s; }
+        .collapsible-header.open::before { transform: rotate(90deg); }
+        .collapsible-body { display: none; }
+        .collapsible-body.open { display: block; }
+
+        /* ── Dashboard table ── */
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead tr { border-bottom: 2px solid var(--border); }
+        th { text-align: left; padding: 10px 14px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+        td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,119,0,.04); }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 9px;
+            border-radius: 99px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .badge::before { content: '●'; font-size: 8px; }
+        .badge-ok      { background: rgba(34,197,94,.15);  color: var(--green); }
+        .badge-error   { background: rgba(239,68,68,.15);  color: var(--red); }
+        .badge-pending { background: rgba(245,158,11,.15); color: var(--yellow); }
+        .badge-blocked { background: rgba(168,85,247,.15); color: #a855f7; }
+        .badge-paused  { background: rgba(100,116,139,.15); color: #94a3b8; }
+
+        .url-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+        /* ── History timeline ── */
+        .history-row td { padding: 0 !important; }
+        .history-inner {
+            background: var(--bg);
+            border-top: 1px solid var(--border);
+            padding: 0 24px 20px;
+        }
+        .timeline { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .timeline-entry {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+        }
+        .tl-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: var(--accent);
+            margin-top: 5px;
+            flex-shrink: 0;
+        }
+        .tl-meta { flex: 1; min-width: 0; }
+        .tl-time { font-size: 12px; color: var(--muted); }
+        .tl-diff {
+            font-family: monospace;
+            font-size: 11px;
+            background: var(--bg);
+            border-radius: 5px;
+            padding: 8px 10px;
+            margin-top: 8px;
+            max-height: 120px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            color: var(--text);
+        }
+        .diff-added   { color: #86efac; }
+        .diff-removed { color: #fca5a5; }
+        .tl-thumb img {
+            width: 80px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+        }
+        .tl-actions { display: flex; gap: 6px; margin-top: 8px; }
+
+        /* ── Diff viewer modal ── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            width: 90vw;
+            max-width: 1100px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .modal-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .modal-header h3 { font-size: 15px; }
+        .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; }
+        .modal-body { padding: 20px 24px; overflow-y: auto; flex: 1; }
+
+        .diff-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .diff-col h4 { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+        .diff-col pre {
+            font-family: monospace;
+            font-size: 12px;
+            background: var(--bg);
+            border-radius: 6px;
+            padding: 12px;
+            overflow: auto;
+            max-height: 50vh;
+            white-space: pre-wrap;
+        }
+        .img-compare { display: flex; gap: 16px; margin-top: 16px; }
+        .img-compare img { max-width: 100%; border-radius: 6px; border: 1px solid var(--border); }
+
+        /* ── Selector picker panel ── */
+        .picker-frame {
+            width: 100%;
+            height: 480px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+        }
+        .selector-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .selector-tag {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 99px;
+            padding: 3px 10px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .selector-tag button {
+            background: none;
+            border: none;
+            color: var(--red);
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            padding: 0;
+        }
+
+        /* ── Toast ── */
+        #toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
+        .toast {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 18px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn .25s ease;
+            max-width: 320px;
+        }
+        .toast.success { border-left: 3px solid var(--green); }
+        .toast.error   { border-left: 3px solid var(--red); }
+        .toast.info    { border-left: 3px solid var(--accent2); }
+        @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } }
+
+        /* ── Empty state ── */
+        .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+        /* ── Responsive ── */
+        @media (max-width: 768px) {
+            .stats-bar { grid-template-columns: repeat(2, 1fr); }
+            .form-grid { grid-template-columns: 1fr; }
+            .form-group.full { grid-column: span 1; }
+            .diff-columns { grid-template-columns: 1fr; }
+        }
+
+        .ai-summary {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(79, 142, 247, 0.12);
+            border-left: 3px solid var(--accent2);
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #93c5fd;
+            margin-bottom: 8px;
+        }
+        .kw-pill {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            margin-left: 6px;
+        }
+        /* ── Comparison Slider ── */
+        .slider-wrapper {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            user-select: none;
+            background: #000;
+        }
+        .slider-wrapper img {
+            width: 100%;
+            display: block;
+            pointer-events: none;
+        }
+        .slider-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            overflow: hidden;
+            width: 50%;
+            border-right: 2px solid var(--accent);
+            box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+        }
+        .slider-overlay img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: auto;
+            max-width: none;
+        }
+        .slider-range {
+            width: 100%;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+
+        /* ── Filter Pills & Tags ── */
+        .filter-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+            align-items: center;
+        }
+        .filter-pill {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 99px;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .filter-pill:hover, .filter-pill.active {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        .tag-pill {
+            background: rgba(79, 142, 247, 0.15);
+            color: #93c5fd;
+            border: 1px solid rgba(79, 142, 247, 0.3);
+            border-radius: 99px;
+            padding: 2px 8px;
+            font-size: 11px;
+            display: inline-block;
+            margin-right: 4px;
+        }
+
+        /* ── Print / PDF Report Styling ── */
+        @media print {
+            body { background: #fff !important; color: #000 !important; }
+            header, .nav-btns, .stats-bar, .panel, .modal-close, #search-input, .actions, .filter-pills, .btn { display: none !important; }
+            .modal-overlay { position: static !important; background: none !important; display: block !important; padding: 0 !important; }
+            .modal { max-width: 100% !important; border: none !important; box-shadow: none !important; background: #fff !important; color: #000 !important; }
+            .diff-col pre { background: #f8fafc !important; color: #000 !important; border: 1px solid #ddd !important; max-height: none !important; }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<header>
+    <div style="display:flex;align-items:center;gap:12px">
+        <div class="logo">🔍 Website<span>Watch</span></div>
+        <button class="btn btn-secondary btn-sm" id="backend-status-btn" onclick="configureBackend()" title="Click to change backend URL" style="display:none;font-size:11px;font-family:monospace;padding:3px 8px;border-radius:20px;align-items:center;gap:5px">
+            <span class="status-dot" style="width:7px;height:7px;border-radius:50%;background:var(--green)"></span>
+            <span class="status-text">Backend: Online</span>
+        </button>
+    </div>
+    <div class="nav-btns">
+        <button class="btn btn-secondary btn-sm" id="theme-toggle-btn" onclick="toggleTheme()" title="Switch dark/light theme">☀️ Light</button>
+        <button class="btn btn-secondary btn-sm" id="notif-toggle-btn" onclick="toggleDesktopAlerts()" title="Enable or disable live desktop notifications">🔔 Alerts: Off</button>
+        <a href="javascript:void(0)" onclick="window.open(getApiUrl('/api/rss'), '_blank')" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📡 RSS</a>
+        <a href="javascript:void(0)" onclick="window.open(getApiUrl('/api/export/csv'), '_blank')" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">📊 CSV</a>
+        <button class="btn btn-secondary btn-sm" onclick="exportSites()">⬇ Export</button>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+            ⬆ Import
+            <input type="file" accept=".json" style="display:none" onchange="importSites(event)">
+        </label>
+        <button class="btn btn-secondary btn-sm" onclick="loadSites()">⟳ Refresh</button>
+        <button class="btn btn-primary" onclick="toggleAddPanel()">+ Add Site</button>
+    </div>
+</header>
+
+<main>
+
+    <!-- Stats bar -->
+    <div class="stats-bar">
+        <div class="stat-card">
+            <div class="stat-label">Monitored</div>
+            <div class="stat-value" id="stat-total">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">OK</div>
+            <div class="stat-value" style="color:var(--green)" id="stat-ok">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Errors</div>
+            <div class="stat-value" style="color:var(--red)" id="stat-error">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Blocked</div>
+            <div class="stat-value" style="color:#a855f7" id="stat-blocked">0</div>
+        </div>
+    </div>
+
+    <!-- Add site panel (hidden by default) -->
+    <div class="panel" id="add-panel" style="display:none">
+        <div class="panel-title" id="add-panel-title">📡 Add / Update Monitored Site</div>
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Site Name</label>
+                <input type="text" id="f-name" placeholder="My Portfolio">
+            </div>
+            <div class="form-group">
+                <label>URL *</label>
+                <input type="url" id="f-url" placeholder="https://example.com">
+            </div>
+            <div class="form-group">
+                <label>Check Interval</label>
+                <select id="f-interval">
+                    <option value="900000">Every 15 minutes</option>
+                    <option value="1800000">Every 30 minutes</option>
+                    <option value="3600000" selected>Every 1 hour</option>
+                    <option value="7200000">Every 2 hours</option>
+                    <option value="21600000">Every 6 hours</option>
+                    <option value="43200000">Every 12 hours</option>
+                    <option value="86400000">Every 24 hours</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Sensitivity (min chars changed to alert)</label>
+                <div class="range-row">
+                    <input type="range" id="f-sensitivity" min="5" max="500" value="20"
+                        oninput="document.getElementById('f-sens-val').textContent=this.value">
+                    <span class="range-val" id="f-sens-val">20</span>
+                </div>
+            </div>
+            <div class="form-group full">
+                <label>Email for alerts (optional)</label>
+                <div style="display:flex;gap:8px">
+                    <input type="email" id="f-email" placeholder="you@example.com" style="flex:1">
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="testAlertChannel('email')">🧪 Test</button>
+                </div>
+            </div>
+            <div class="form-group full">
+                <label>Keyword-Only Alerts (optional — comma-separated; alerts trigger ONLY if diff contains these words)</label>
+                <input type="text" id="f-keywords" placeholder="e.g. price, out of stock, sale, discount, 50%">
+            </div>
+            <div class="form-group full">
+                <label>Tags / Categories (optional — comma-separated, e.g. e-commerce, competitors, pricing)</label>
+                <input type="text" id="f-tags" placeholder="e.g. ecommerce, pricing, critical">
+            </div>
+
+            <!-- Advanced: alerts section -->
+            <div class="form-group full">
+                <div class="collapsible-header" onclick="toggleCollapse(this)">Alert Integrations (Telegram / Discord / Slack / Webhooks)</div>
+                <div class="collapsible-body">
+                    <div class="form-grid" style="margin-top:10px">
+                        <div class="form-group">
+                            <label>Telegram Bot Token</label>
+                            <input type="text" id="f-tg-token" placeholder="1234567890:ABCdef...">
+                        </div>
+                        <div class="form-group">
+                            <label>Telegram Chat ID</label>
+                            <div style="display:flex;gap:8px">
+                                <input type="text" id="f-tg-chat" placeholder="-100123456789" style="flex:1">
+                                <button class="btn btn-secondary btn-sm" type="button" onclick="testAlertChannel('telegram')">🧪 Test</button>
+                            </div>
+                        </div>
+                        <div class="form-group full">
+                            <label>Discord Webhook URL</label>
+                            <div style="display:flex;gap:8px">
+                                <input type="url" id="f-discord" placeholder="https://discord.com/api/webhooks/..." style="flex:1">
+                                <button class="btn btn-secondary btn-sm" type="button" onclick="testAlertChannel('discord')">🧪 Test</button>
+                            </div>
+                        </div>
+                        <div class="form-group full">
+                            <label>Slack / Custom Webhook URL (JSON payload or Slack incoming webhook)</label>
+                            <div style="display:flex;gap:8px">
+                                <input type="url" id="f-webhook" placeholder="https://hooks.slack.com/services/... or https://domain.com/webhook" style="flex:1">
+                                <button class="btn btn-secondary btn-sm" type="button" onclick="testAlertChannel('webhook')">🧪 Test</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Selectors section -->
+            <div class="form-group full">
+                <div class="collapsible-header" onclick="toggleCollapse(this)">Watch / Ignore Regions (CSS Selectors)</div>
+                <div class="collapsible-body">
+                    <div style="margin-top:10px">
+                        <label>Watch Selectors (leave empty = full page)</label>
+                        <div style="display:flex;gap:8px;margin-top:6px">
+                            <input type="text" id="f-watch-input" placeholder=".main-content, #prices">
+                            <button class="btn btn-secondary btn-sm" onclick="addWatchSelector()">+ Add</button>
+                            <button class="btn btn-secondary btn-sm" type="button" onclick="testSelectorInput('watch')" title="Test selector against live URL">🧪 Test</button>
+                            <button class="btn btn-blue btn-sm" onclick="openPickerModal('watch')">🎯 Picker</button>
+                        </div>
+                        <div class="selector-tags" id="watch-tags"></div>
+
+                        <label style="margin-top:14px;display:block">Ignore Selectors</label>
+                        <div style="display:flex;gap:8px;margin-top:6px">
+                            <input type="text" id="f-ignore-input" placeholder=".ads, #cookie-banner">
+                            <button class="btn btn-secondary btn-sm" onclick="addIgnoreSelector()">+ Add</button>
+                            <button class="btn btn-secondary btn-sm" type="button" onclick="testSelectorInput('ignore')" title="Test selector against live URL">🧪 Test</button>
+                            <button class="btn btn-blue btn-sm" onclick="openPickerModal('ignore')">🎯 Picker</button>
+                        </div>
+                        <div class="selector-tags" id="ignore-tags"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced: Authentication & Custom Headers -->
+            <div class="form-group full">
+                <div class="collapsible-header" onclick="toggleCollapse(this)">🔐 Authentication & Session Cookies (for Dashboards behind Login)</div>
+                <div class="collapsible-body">
+                    <div style="margin-top:10px">
+                        <label>Session Cookie or Custom Request Headers (optional)</label>
+                        <textarea id="f-headers" rows="2" placeholder='e.g. session=abc123 or sb-access-token=xyz or {"Authorization": "Bearer token"}' style="font-family:monospace;font-size:12px"></textarea>
+                        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+                            💡 Paste your browser's session cookie or Authorization header to monitor dashboards that require logging in.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group full" style="display:flex;gap:10px;justify-content:flex-end">
+                <button class="btn btn-secondary" onclick="cancelEditForm()">Cancel</button>
+                <button class="btn btn-primary" id="f-submit-btn" onclick="submitTrack()">🚀 Start Monitoring</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="panel">
+        <div class="panel-title" style="justify-content: space-between;">
+            <span>📊 Dashboard</span>
+            <input type="search" id="search-input" placeholder="🔍 Filter by name or URL…"
+                style="max-width:260px;font-size:13px;padding:6px 12px"
+                oninput="filterTable(this.value)">
+        </div>
+        <div class="filter-pills" id="filter-pills-bar"></div>
+        <div class="table-wrap">
+            <table id="sites-table">
+                <thead>
+                    <tr>
+                        <th>Name / URL</th>
+                        <th>Status</th>
+                        <th>Last Checked</th>
+                        <th>Last Changed</th>
+                        <th>Interval</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sites-tbody">
+                    <tr><td colspan="6">
+                        <div class="empty-state">
+                            <div class="icon">🕵️</div>
+                            <div>No sites monitored yet.<br>Click <strong style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="toggleAddPanel()">+ Add Site</strong> to begin.</div>
+                        </div>
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</main>
+
+<!-- Diff viewer modal -->
+<div class="modal-overlay" id="diff-modal">
+    <div class="modal" style="max-width:960px;width:95%">
+        <div class="modal-header">
+            <h3>🔀 Version Diff Viewer</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+                <button class="btn btn-secondary btn-sm" onclick="window.print()" title="Print or export as PDF report">🖨️ Print / PDF</button>
+                <button class="modal-close" onclick="closeDiffModal()">✕</button>
+            </div>
+        </div>
+        <div class="modal-body" id="diff-modal-body">
+            <!-- filled dynamically -->
+        </div>
+    </div>
+</div>
+
+<!-- Selector picker modal -->
+<div class="modal-overlay" id="picker-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>🎯 Visual Selector Picker</h3>
+            <button class="modal-close" onclick="closePickerModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="color:var(--muted);font-size:13px;margin-bottom:10px">
+                Enter target URL to load the interactive visual inspector. Hover over any element to see its selector, and click to automatically choose it.
+            </p>
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+                <input type="url" id="picker-url-input" placeholder="https://example.com" style="flex:1">
+                <button class="btn btn-primary" onclick="loadPickerFrame()">Load Page Inspector</button>
+            </div>
+            <iframe id="picker-iframe" class="picker-frame"></iframe>
+            <p style="color:var(--muted);font-size:12px;margin-top:8px" id="picker-note">
+                💡 Powered by server-side proxy inspector: strips CSP restrictions and highlights elements with a single click.
+            </p>
+            <div style="margin-top:12px;display:flex;align-items:center;gap:10px">
+                <input type="text" id="picker-result" placeholder="Click an element above, or type a selector" style="flex:1">
+                <button class="btn btn-primary" onclick="confirmPickerSelector()">Use Selector</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Metrics Trend Chart modal -->
+<div class="modal-overlay" id="chart-modal">
+    <div class="modal" style="max-width:760px;width:95%">
+        <div class="modal-header">
+            <h3 id="chart-title">📈 Metric Trend Chart</h3>
+            <button class="modal-close" onclick="closeChartModal()">✕</button>
+        </div>
+        <div class="modal-body" style="padding:20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+                <div style="font-size:12px;color:var(--muted)" id="chart-desc">
+                    Visualizing numeric/price changes tracked over time
+                </div>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-primary btn-sm" id="btn-chart-metric" onclick="switchChartTab('metric')">📈 Values</button>
+                    <button class="btn btn-secondary btn-sm" id="btn-chart-latency" onclick="switchChartTab('latency')">⚡ Response Latency</button>
+                </div>
+            </div>
+            <div style="position:relative;height:320px;width:100%">
+                <canvas id="metrics-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let sites                  = [];
+let watchSelectors         = [];
+let ignoreSelectors        = [];
+let pickerMode             = 'watch'; // 'watch' | 'ignore'
+let expandedRows           = {};      // siteId → bool
+let currentFilter          = 'all';
+let filterQuery            = '';
+let desktopAlertsEnabled   = localStorage.getItem('wcd_desktop_alerts') === 'true';
+let knownChangedTimestamps = {};      // siteId -> lastChanged
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────
+initTheme();
+initDesktopAlerts();
+loadSites();
+setInterval(loadSites, 30000); // auto-refresh every 30s
+
+// ── Theme Management ───────────────────────────────────────────────────────
+function initTheme() {
+    const saved = localStorage.getItem('wcd_theme') || 'dark';
+    if (saved === 'light') {
+        document.body.classList.add('light-theme');
+        const btn = document.getElementById('theme-toggle-btn');
+        if (btn) btn.textContent = '🌙 Dark';
+    }
+}
+
+function toggleTheme() {
+    const isLight = document.body.classList.toggle('light-theme');
+    localStorage.setItem('wcd_theme', isLight ? 'light' : 'dark');
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = isLight ? '🌙 Dark' : '☀️ Light';
+}
+
+// ── Desktop Alerts & Web Audio Chime ───────────────────────────────────────
+function initDesktopAlerts() {
+    updateAlertButton();
+}
+
+function updateAlertButton() {
+    const btn = document.getElementById('notif-toggle-btn');
+    if (btn) {
+        btn.textContent = desktopAlertsEnabled ? '🔔 Alerts: On' : '🔕 Alerts: Off';
+        btn.className = desktopAlertsEnabled ? 'btn btn-blue btn-sm' : 'btn btn-secondary btn-sm';
+    }
+}
+
+async function toggleDesktopAlerts() {
+    if (!desktopAlertsEnabled) {
+        if ('Notification' in window) {
+            const perm = await Notification.requestPermission();
+            if (perm === 'granted') {
+                desktopAlertsEnabled = true;
+                localStorage.setItem('wcd_desktop_alerts', 'true');
+                toast('Desktop alerts activated with sound!', 'success');
+                playNotificationChime();
+            } else {
+                toast('Notification permission was denied', 'error');
+                desktopAlertsEnabled = false;
+                localStorage.setItem('wcd_desktop_alerts', 'false');
+            }
+        } else {
+            toast('Browser does not support Notifications', 'error');
+        }
+    } else {
+        desktopAlertsEnabled = false;
+        localStorage.setItem('wcd_desktop_alerts', 'false');
+        toast('Desktop alerts turned off', 'info');
+    }
+    updateAlertButton();
+}
+
+function playNotificationChime() {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880.00, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+    } catch (_) {}
+}
+
+function checkChangesForAlerts(newSites) {
+    newSites.forEach(s => {
+        if (!s.lastChanged || s.lastChanged === 'Never') return;
+        const prev = knownChangedTimestamps[s.id];
+        if (prev && prev !== s.lastChanged && desktopAlertsEnabled) {
+            playNotificationChime();
+            if (Notification.permission === 'granted') {
+                new Notification('🚨 Website Change Detected!', {
+                    body: `${s.name || s.url} updated at ${s.lastChanged}`,
+                    icon: '/favicon.ico'
+                });
+            }
+        }
+        knownChangedTimestamps[s.id] = s.lastChanged;
+    });
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, type = 'info') {
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.textContent = msg;
+    document.getElementById('toast-container').appendChild(t);
+    setTimeout(() => t.remove(), 4000);
+}
+
+// ── API helpers ────────────────────────────────────────────────────────────
+function getApiUrl(path) {
+    if (!path) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    const isGitHubPages = window.location.hostname.includes('github.io') || window.location.protocol === 'file:';
+    const base = localStorage.getItem('API_BASE_URL') || (isGitHubPages ? 'https://washday-other-resend.ngrok-free.dev' : '');
+    const cleanPath = path.startsWith('/') ? path : '/' + path;
+    return base ? (base.replace(/\/+$/, '') + cleanPath) : cleanPath;
+}
+
+function updateBackendStatus(online) {
+    const btn = document.getElementById('backend-status-btn');
+    if (!btn) return;
+    const isGitHubPages = window.location.hostname.includes('github.io') || window.location.protocol === 'file:' || localStorage.getItem('API_BASE_URL');
+    if (!isGitHubPages) {
+        btn.style.display = 'none';
+        return;
+    }
+    btn.style.display = 'inline-flex';
+    const dot = btn.querySelector('.status-dot');
+    const text = btn.querySelector('.status-text');
+    if (online) {
+        if (dot) dot.style.background = 'var(--green)';
+        if (text) text.textContent = 'Backend: Online';
+    } else {
+        if (dot) dot.style.background = 'var(--red)';
+        if (text) text.textContent = 'Backend: Offline (click to configure)';
+    }
+}
+
+function configureBackend() {
+    const current = getApiUrl('').replace(/\/+$/, '');
+    const updated = prompt('Configure Backend Server URL (e.g. ngrok or cloud URL):', current);
+    if (updated !== null && updated.trim()) {
+        localStorage.setItem('API_BASE_URL', updated.trim().replace(/\/+$/, ''));
+        toast('Backend URL updated! Connecting...', 'info');
+        setTimeout(() => location.reload(), 800);
+    }
+}
+
+async function api(method, path, body) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(getApiUrl(path), opts);
+    return r.json();
+}
+
+// ── Load & render dashboard ────────────────────────────────────────────────
+async function loadSites() {
+    try {
+        sites = await api('GET', '/api/sites');
+        updateBackendStatus(true);
+        renderStats(sites);
+        checkChangesForAlerts(sites);
+        applyFilters();
+    } catch (e) {
+        updateBackendStatus(false);
+        toast('Failed to load sites: ' + e.message, 'error');
+    }
+}
+
+function selectFilterPill(filter) {
+    currentFilter = filter;
+    applyFilters();
+}
+
+function renderFilterPills() {
+    const bar = document.getElementById('filter-pills-bar');
+    if (!bar) return;
+    const total = sites.length;
+    const okCount = sites.filter(s => s.status === 'OK' && !s.paused).length;
+    const changedCount = sites.filter(s => s.history && s.history.length > 0).length;
+    const pausedCount = sites.filter(s => s.paused).length;
+    const errorCount = sites.filter(s => s.status === 'ERROR' || s.status === 'BLOCKED').length;
+
+    const tagSet = new Set();
+    sites.forEach(s => (s.tags || []).forEach(t => tagSet.add(t)));
+    const tags = Array.from(tagSet);
+
+    let html = `
+        <button class="filter-pill ${currentFilter === 'all' ? 'active' : ''}" onclick="selectFilterPill('all')">All (${total})</button>
+        <button class="filter-pill ${currentFilter === 'ok' ? 'active' : ''}" onclick="selectFilterPill('ok')">🟢 OK (${okCount})</button>
+        <button class="filter-pill ${currentFilter === 'changed' ? 'active' : ''}" onclick="selectFilterPill('changed')">🔄 Has Changes (${changedCount})</button>
+        <button class="filter-pill ${currentFilter === 'paused' ? 'active' : ''}" onclick="selectFilterPill('paused')">⏸ Paused (${pausedCount})</button>
+        <button class="filter-pill ${currentFilter === 'errors' ? 'active' : ''}" onclick="selectFilterPill('errors')">⚠️ Issues (${errorCount})</button>
+    `;
+
+    tags.forEach(t => {
+        const count = sites.filter(s => (s.tags || []).includes(t)).length;
+        html += `<button class="filter-pill ${currentFilter === 'tag:' + t ? 'active' : ''}" onclick="selectFilterPill('tag:${escAttr(t)}')">#${escHtml(t)} (${count})</button>`;
+    });
+
+    bar.innerHTML = html;
+}
+
+function applyFilters() {
+    renderFilterPills();
+    let filtered = sites;
+    if (currentFilter === 'ok') filtered = filtered.filter(s => s.status === 'OK' && !s.paused);
+    else if (currentFilter === 'changed') filtered = filtered.filter(s => s.history && s.history.length > 0);
+    else if (currentFilter === 'paused') filtered = filtered.filter(s => s.paused);
+    else if (currentFilter === 'errors') filtered = filtered.filter(s => s.status === 'ERROR' || s.status === 'BLOCKED');
+    else if (currentFilter.startsWith('tag:')) {
+        const tag = currentFilter.slice(4);
+        filtered = filtered.filter(s => (s.tags || []).includes(tag));
+    }
+
+    if (filterQuery) {
+        filtered = filtered.filter(s =>
+            (s.name || s.url).toLowerCase().includes(filterQuery) ||
+            s.url.toLowerCase().includes(filterQuery) ||
+            (s.tags || []).some(t => t.toLowerCase().includes(filterQuery))
+        );
+    }
+    renderTable(filtered);
+}
+
+function renderStats(sites) {
+    document.getElementById('stat-total').textContent   = sites.length;
+    document.getElementById('stat-ok').textContent      = sites.filter(s => s.status === 'OK').length;
+    document.getElementById('stat-error').textContent   = sites.filter(s => s.status === 'ERROR').length;
+    document.getElementById('stat-blocked').textContent = sites.filter(s => s.status === 'BLOCKED').length;
+}
+
+function fmtInterval(ms) {
+    if (!ms) return '—';
+    const m = ms / 60000;
+    if (m < 60)  return m + ' min';
+    if (m < 1440) return (m / 60) + ' hr';
+    return (m / 1440) + ' day';
+}
+
+function statusBadge(site) {
+    if (site.paused) return `<span class="badge badge-paused">PAUSED</span>`;
+    const map = { OK: 'ok', ERROR: 'error', BLOCKED: 'blocked', PENDING: 'pending' };
+    const cls = map[site.status] || 'pending';
+    return `<span class="badge badge-${cls}">${site.status || 'PENDING'}</span>`;
+}
+
+function renderTable(sitesToRender) {
+    const tbody = document.getElementById('sites-tbody');
+    if (!sitesToRender.length) {
+        tbody.innerHTML = `<tr><td colspan="6">
+            <div class="empty-state">
+                <div class="icon">🕵️</div>
+                <div>No sites matched current criteria.<br>Click <strong style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="toggleAddPanel()">+ Add Site</strong> or reset filters.</div>
+            </div>
+        </td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = sitesToRender.map(s => {
+        const expanded = expandedRows[s.id];
+        const tagsHtml = (s.tags && s.tags.length)
+            ? `<div style="margin-top:4px">${s.tags.map(t => `<span class="tag-pill" style="cursor:pointer" onclick="selectFilterPill('tag:${escAttr(t)}')">#${escHtml(t)}</span>`).join('')}</div>`
+            : '';
+
+        const latencyBadge = s.responseTimeMs
+            ? `<div style="margin-top:4px"><span style="font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(79,142,247,.15);color:var(--accent2);font-weight:600">⚡ ${s.responseTimeMs}ms</span></div>`
+            : '';
+
+        const rows = [`
+            <tr>
+                <td>
+                    <div style="font-weight:600">${escHtml(s.name || s.url)}</div>
+                    <div class="url-cell" style="color:var(--muted);font-size:12px" title="${escHtml(s.url)}">${escHtml(s.url)}</div>
+                    ${tagsHtml}
+                </td>
+                <td>
+                    ${statusBadge(s)}
+                    ${latencyBadge}
+                    ${s.status === 'ERROR' ? `<div style="font-size:11px;color:var(--red);margin-top:4px">${escHtml((s.lastError||'').slice(0,60))}</div>` : ''}
+                </td>
+                <td style="font-size:12px;color:var(--muted)">${s.lastChecked || '—'}</td>
+                <td style="font-size:12px">${s.lastChanged || 'Never'}</td>
+                <td style="font-size:12px;color:var(--muted)">${fmtInterval(s.intervalMs)}</td>
+                <td>
+                    <div class="actions">
+                        <button class="btn btn-secondary btn-sm" onclick="manualCheck('${s.id}')" ${s.paused ? 'disabled title="Paused"' : ''}>⟳ Check</button>
+                        <button class="btn btn-secondary btn-sm" onclick="togglePause('${s.id}')" title="${s.paused ? 'Resume monitoring' : 'Pause monitoring'}">
+                            ${s.paused ? '▶ Resume' : '⏸ Pause'}
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="editSite('${s.id}')" title="Edit site settings">✏️ Edit</button>
+                        <button class="btn btn-secondary btn-sm" onclick="openMetricsChart('${s.id}', '${escAttr(s.name||s.url)}')">📈 Chart</button>
+                        <a href="${getApiUrl('/api/sites/' + s.id + '/rss')}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none" title="Site RSS Feed">📡 RSS</a>
+                        <button class="btn btn-blue btn-sm" onclick="toggleHistory('${s.id}')">
+                            ${expanded ? '▲' : '▼'} History${s.history && s.history.length ? ` (${s.history.length})` : ''}
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteSite('${s.id}')">🗑</button>
+                    </div>
+                </td>
+            </tr>`];
+
+        if (expanded) {
+            rows.push(`<tr class="history-row" id="hr-${s.id}">
+                <td colspan="6">
+                    <div class="history-inner">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;margin-bottom:8px">
+                            <div style="font-size:13px;font-weight:700">Version Timeline</div>
+                            <a href="${getApiUrl('/api/sites/' + s.id + '/export/csv')}" class="btn btn-secondary btn-sm" style="text-decoration:none">📊 Export Timeline (CSV)</a>
+                        </div>
+                        ${renderTimeline(s)}
+                    </div>
+                </td>
+            </tr>`);
+        }
+        return rows.join('');
+    }).join('');
+}
+
+function renderTimeline(site) {
+    if (!site.history || !site.history.length) {
+        return `<div style="color:var(--muted);font-size:13px;padding:20px 0">No changes recorded yet.</div>`;
+    }
+    return `<div class="timeline">${site.history.map((h, idx) => {
+        const diffHtml = h.diff.split('\n').map(line => {
+            if (line.startsWith('[+]')) return `<span class="diff-added">${escHtml(line)}</span>`;
+            if (line.startsWith('[-]')) return `<span class="diff-removed">${escHtml(line)}</span>`;
+            return escHtml(line);
+        }).join('\n');
+
+        const prevEntry = site.history[idx + 1];
+
+        return `<div class="timeline-entry">
+            <div class="tl-dot"></div>
+            <div class="tl-meta">
+                <div class="tl-time">
+                    ${new Date(h.timestamp).toLocaleString()} · <span style="font-family:monospace;font-size:11px">${h.hash.slice(0,8)}</span>
+                    ${h.responseTimeMs ? ` · <span style="color:var(--accent2);font-weight:600">⚡ ${h.responseTimeMs}ms</span>` : ''}
+                    ${h.matchedKeyword ? `<span class="kw-pill">🎯 ${escHtml(h.matchedKeyword)}</span>` : ''}
+                </div>
+                ${h.summary ? `<div class="ai-summary">🤖 <strong>AI Summary:</strong> ${escHtml(h.summary)}</div>` : ''}
+                <div class="tl-diff"><code>${diffHtml || '(No diff recorded)'}</code></div>
+                <div class="tl-actions">
+                    ${h.screenshot ? `<button class="btn btn-secondary btn-sm" onclick="openScreenshot('${getApiUrl('/snapshots/' + h.screenshot)}')">📷 Screenshot</button>` : ''}
+                    ${h.diffScreenshot ? `<button class="btn btn-secondary btn-sm" onclick="openScreenshot('${getApiUrl('/snapshots/' + h.diffScreenshot)}')">🔀 Diff Image</button>` : ''}
+                    ${prevEntry ? `<button class="btn btn-blue btn-sm" onclick="openDiffModal('${site.id}','${h.id}','${prevEntry.id}')">⇄ Compare</button>` : ''}
+                </div>
+            </div>
+            ${h.screenshot ? `<div class="tl-thumb"><img src="${getApiUrl('/snapshots/' + h.screenshot)}" alt="screenshot" onclick="openScreenshot('${getApiUrl('/snapshots/' + h.screenshot)}')"></div>` : ''}
+        </div>`;
+    }).join('')}</div>`;
+}
+
+// ── Actions ────────────────────────────────────────────────────────────────
+async function manualCheck(id) {
+    const r = await api('POST', `/api/sites/${id}/check`);
+    if (r.success) {
+        toast('Check queued!', 'success');
+        setTimeout(loadSites, 3000);
+    } else {
+        toast('Failed: ' + r.error, 'error');
+    }
+}
+
+async function deleteSite(id) {
+    if (!confirm('Remove this site from monitoring?')) return;
+    const r = await api('DELETE', `/api/sites/${id}`);
+    if (r.success) { toast('Site removed', 'success'); loadSites(); }
+    else toast('Error: ' + r.error, 'error');
+}
+
+function toggleHistory(id) {
+    expandedRows[id] = !expandedRows[id];
+    renderTable(sites);
+}
+
+// ── Add / Edit site form ───────────────────────────────────────────────────
+let editingSiteId = null;
+
+function toggleAddPanel() {
+    const p = document.getElementById('add-panel');
+    if (!p) return;
+    const isHidden = p.style.display === 'none' || window.getComputedStyle(p).display === 'none';
+    p.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) {
+        p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (editingSiteId) {
+        cancelEditForm();
+    }
+}
+
+function cancelEditForm() {
+    resetForm();
+    document.getElementById('add-panel').style.display = 'none';
+}
+
+function editSite(id) {
+    const s = sites.find(x => x.id === id);
+    if (!s) return;
+    editingSiteId = id;
+    document.getElementById('add-panel-title').textContent = '✏️ Edit Monitored Site';
+    document.getElementById('f-submit-btn').textContent = '💾 Update Site';
+    document.getElementById('f-name').value = s.name || '';
+    document.getElementById('f-url').value = s.url || '';
+    document.getElementById('f-interval').value = s.intervalMs || '3600000';
+    document.getElementById('f-sensitivity').value = s.sensitivity || 20;
+    document.getElementById('f-sens-val').textContent = s.sensitivity || 20;
+    document.getElementById('f-email').value = s.email || '';
+    document.getElementById('f-keywords').value = (s.keywords || []).join(', ');
+    document.getElementById('f-tags').value = (s.tags || []).join(', ');
+    document.getElementById('f-tg-token').value = s.telegramToken || '';
+    document.getElementById('f-tg-chat').value = s.telegramChatId || '';
+    document.getElementById('f-discord').value = s.discordWebhook || '';
+    document.getElementById('f-webhook').value = s.webhookUrl || '';
+    document.getElementById('f-headers').value = s.customHeaders || '';
+
+    watchSelectors = [...(s.watchSelectors || [])];
+    ignoreSelectors = [...(s.ignoreSelectors || [])];
+    renderSelectorTags();
+
+    // Open collapsibles if populated
+    if (s.telegramToken || s.telegramChatId || s.discordWebhook || s.webhookUrl) {
+        document.querySelectorAll('.collapsible-header').forEach(h => {
+            if (h.textContent.includes('Alert') && !h.classList.contains('open')) toggleCollapse(h);
+        });
+    }
+    if (watchSelectors.length || ignoreSelectors.length) {
+        document.querySelectorAll('.collapsible-header').forEach(h => {
+            if (h.textContent.includes('Regions') && !h.classList.contains('open')) toggleCollapse(h);
+        });
+    }
+    if (s.customHeaders) {
+        document.querySelectorAll('.collapsible-header').forEach(h => {
+            if (h.textContent.includes('Authentication') && !h.classList.contains('open')) toggleCollapse(h);
+        });
+    }
+
+    const panel = document.getElementById('add-panel');
+    panel.style.display = 'block';
+    panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+async function testAlertChannel(type) {
+    const payload = {
+        type,
+        email: document.getElementById('f-email').value.trim(),
+        telegramToken: document.getElementById('f-tg-token').value.trim(),
+        telegramChatId: document.getElementById('f-tg-chat').value.trim(),
+        discordWebhook: document.getElementById('f-discord').value.trim(),
+        webhookUrl: document.getElementById('f-webhook').value.trim()
+    };
+    try {
+        toast(`Testing ${type} notification channel...`, 'info');
+        const res = await api('POST', '/api/test-alert', payload);
+        if (res.success) {
+            toast(res.message, 'success');
+        } else {
+            toast('Failed: ' + (res.error || 'Check credentials'), 'error');
+        }
+    } catch (e) {
+        toast('Test failed: ' + e.message, 'error');
+    }
+}
+
+async function submitTrack() {
+    const url = document.getElementById('f-url').value.trim();
+    if (!url) { toast('URL is required', 'error'); return; }
+
+    const payload = {
+        id:              editingSiteId || undefined,
+        url,
+        name:            document.getElementById('f-name').value.trim(),
+        intervalMs:      Number(document.getElementById('f-interval').value),
+        sensitivity:     Number(document.getElementById('f-sensitivity').value),
+        email:           document.getElementById('f-email').value.trim(),
+        keywords:        document.getElementById('f-keywords').value.trim(),
+        tags:            document.getElementById('f-tags').value.trim(),
+        customHeaders:   document.getElementById('f-headers').value.trim(),
+        telegramToken:   document.getElementById('f-tg-token').value.trim(),
+        telegramChatId:  document.getElementById('f-tg-chat').value.trim(),
+        discordWebhook:  document.getElementById('f-discord').value.trim(),
+        webhookUrl:      document.getElementById('f-webhook').value.trim(),
+        watchSelectors,
+        ignoreSelectors
+    };
+
+    const btn = document.getElementById('f-submit-btn');
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+        const r = await api('POST', '/api/track', payload);
+        if (r.success) {
+            toast(r.message, 'success');
+            resetForm();
+            document.getElementById('add-panel').style.display = 'none';
+            setTimeout(loadSites, 1500);
+        } else {
+            toast('Error: ' + r.error, 'error');
+        }
+    } catch (e) {
+        toast('Network error: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+    }
+}
+
+function resetForm() {
+    ['f-name','f-url','f-email','f-keywords','f-tags','f-headers','f-tg-token','f-tg-chat','f-discord','f-webhook'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    document.getElementById('f-interval').value = '3600000';
+    document.getElementById('f-sensitivity').value = '20';
+    document.getElementById('f-sens-val').textContent = '20';
+    document.getElementById('add-panel-title').textContent = '📡 Add / Update Monitored Site';
+    document.getElementById('f-submit-btn').textContent = '🚀 Start Monitoring';
+    editingSiteId = null;
+    watchSelectors  = [];
+    ignoreSelectors = [];
+    renderSelectorTags();
+}
+
+// ── CSS Selector management ────────────────────────────────────────────────
+function addWatchSelector() {
+    const v = document.getElementById('f-watch-input').value.trim();
+    if (v && !watchSelectors.includes(v)) { watchSelectors.push(v); renderSelectorTags(); }
+    document.getElementById('f-watch-input').value = '';
+}
+
+function addIgnoreSelector() {
+    const v = document.getElementById('f-ignore-input').value.trim();
+    if (v && !ignoreSelectors.includes(v)) { ignoreSelectors.push(v); renderSelectorTags(); }
+    document.getElementById('f-ignore-input').value = '';
+}
+
+function removeSelector(type, val) {
+    if (type === 'watch')  watchSelectors  = watchSelectors.filter(s => s !== val);
+    else                   ignoreSelectors = ignoreSelectors.filter(s => s !== val);
+    renderSelectorTags();
+}
+
+function renderSelectorTags() {
+    ['watch','ignore'].forEach(type => {
+        const arr = type === 'watch' ? watchSelectors : ignoreSelectors;
+        document.getElementById(`${type}-tags`).innerHTML = arr.map(s =>
+            `<span class="selector-tag">
+                <code>${escHtml(s)}</code>
+                <button onclick="removeSelector('${type}','${escHtml(s)}')" title="Remove">✕</button>
+            </span>`
+        ).join('');
+    });
+}
+
+async function testSelectorInput(type) {
+    const url = document.getElementById('f-url').value.trim();
+    if (!url) { toast('Please enter a target URL first', 'error'); return; }
+    const inputId = type === 'watch' ? 'f-watch-input' : 'f-ignore-input';
+    const selector = document.getElementById(inputId).value.trim();
+    if (!selector) { toast(`Enter a CSS selector to test in the ${type} input`, 'error'); return; }
+
+    toast(`Evaluating "${selector}" with headless browser...`, 'info');
+    try {
+        const res = await api('POST', '/api/test-selector', { url, selector });
+        if (res.error) {
+            toast('Selector test failed: ' + res.error, 'error');
+        } else if (res.count === 0) {
+            toast(`⚠️ No elements matched selector "${selector}" on page.`, 'error');
+        } else {
+            const preview = res.text ? ` ("${res.text.slice(0, 50)}${res.text.length > 50 ? '...' : ''}")` : '';
+            toast(`✅ Matched ${res.count} element(s) <${res.tagName}>${preview}`, 'success');
+        }
+    } catch (e) {
+        toast('Selector test failed: ' + e.message, 'error');
+    }
+}
+
+// ── Selector Picker modal ──────────────────────────────────────────────────
+function openPickerModal(mode) {
+    pickerMode = mode;
+    const url = document.getElementById('f-url').value.trim();
+    if (url) document.getElementById('picker-url-input').value = url;
+    document.getElementById('picker-modal').classList.add('open');
+}
+
+function closePickerModal() {
+    document.getElementById('picker-modal').classList.remove('open');
+    document.getElementById('picker-iframe').src = 'about:blank';
+}
+
+function loadPickerFrame() {
+    const url = document.getElementById('picker-url-input').value.trim();
+    if (!url) { toast('Enter a URL first', 'error'); return; }
+    document.getElementById('picker-iframe').src = getApiUrl('/api/proxy?url=' + encodeURIComponent(url));
+    document.getElementById('picker-result').value = '';
+    toast('Loading interactive visual inspector preview...', 'info');
+}
+
+// Listen for selector messages from the iframe
+window.addEventListener('message', e => {
+    if (e.data && e.data.type === 'SELECTOR_PICKED') {
+        document.getElementById('picker-result').value = e.data.selector;
+    }
+});
+
+function confirmPickerSelector() {
+    const sel = document.getElementById('picker-result').value.trim();
+    if (!sel) { toast('No selector selected', 'error'); return; }
+    if (pickerMode === 'watch') {
+        if (!watchSelectors.includes(sel)) watchSelectors.push(sel);
+    } else {
+        if (!ignoreSelectors.includes(sel)) ignoreSelectors.push(sel);
+    }
+    renderSelectorTags();
+    closePickerModal();
+    toast(`Selector added to ${pickerMode} list`, 'success');
+}
+
+// ── Diff viewer modal & comparison slider ──────────────────────────────────
+function switchDiffTab(mode) {
+    const side = document.getElementById('diff-side-view');
+    const slider = document.getElementById('diff-slider-view');
+    const pixel = document.getElementById('diff-pixel-view');
+    const btnSide = document.getElementById('tab-btn-side');
+    const btnSlider = document.getElementById('tab-btn-slider');
+    const btnPixel = document.getElementById('tab-btn-pixel');
+
+    if (side) side.style.display = mode === 'side' ? 'block' : 'none';
+    if (slider) slider.style.display = mode === 'slider' ? 'block' : 'none';
+    if (pixel) pixel.style.display = mode === 'pixel' ? 'block' : 'none';
+
+    if (btnSide) btnSide.className = mode === 'side' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    if (btnSlider) btnSlider.className = mode === 'slider' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    if (btnPixel) btnPixel.className = mode === 'pixel' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+
+    if (mode === 'slider') {
+        setTimeout(() => updateDiffSlider(50), 50);
+    }
+}
+
+function updateDiffSlider(val) {
+    const overlay = document.getElementById('slider-overlay-el');
+    const img = document.getElementById('slider-overlay-img');
+    const wrapper = document.getElementById('slider-wrapper-el');
+    if (!overlay || !wrapper) return;
+    overlay.style.width = val + '%';
+    if (img) img.style.width = wrapper.clientWidth + 'px';
+}
+
+window.addEventListener('resize', () => {
+    const range = document.querySelector('.slider-range');
+    if (range) updateDiffSlider(range.value);
+});
+
+async function openDiffModal(siteId, vidA, vidB) {
+    const r = await api('POST', `/api/sites/${siteId}/compare`, { vidA, vidB });
+    if (r.error) { toast('Compare error: ' + r.error, 'error'); return; }
+
+    const buildDiffHtml = (diff) => diff.split('\n').map(line => {
+        if (line.startsWith('[+]')) return `<span style="background:rgba(34,197,94,.12);color:#86efac">${escHtml(line)}</span>`;
+        if (line.startsWith('[-]')) return `<span style="background:rgba(239,68,68,.12);color:#fca5a5">${escHtml(line)}</span>`;
+        return escHtml(line);
+    }).join('\n');
+
+    const body = document.getElementById('diff-modal-body');
+    body.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="color:var(--muted);font-size:12px">
+                Comparing <strong>${new Date(r.a.timestamp).toLocaleString()}</strong> → <strong>${new Date(r.b.timestamp).toLocaleString()}</strong>
+            </div>
+            <div style="display:flex;gap:6px">
+                <button class="btn btn-primary btn-sm" id="tab-btn-side" onclick="switchDiffTab('side')">Side-by-Side</button>
+                ${r.screenshotA && r.screenshotB ? `<button class="btn btn-secondary btn-sm" id="tab-btn-slider" onclick="switchDiffTab('slider')">🔀 Comparison Slider</button>` : ''}
+                ${r.diffScreenshot ? `<button class="btn btn-secondary btn-sm" id="tab-btn-pixel" onclick="switchDiffTab('pixel')">🔍 Pixel Diff</button>` : ''}
+            </div>
+        </div>
+
+        <div id="diff-side-view">
+            <div class="diff-columns">
+                <div class="diff-col">
+                    <h4>OLDER VERSION (${r.a.hash.slice(0,8)})</h4>
+                    <pre>${r.screenshotA ? `<img src="${getApiUrl('/snapshots/' + r.screenshotA)}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.a.diff || '')}</pre>
+                </div>
+                <div class="diff-col">
+                    <h4>NEWER VERSION (${r.b.hash.slice(0,8)})</h4>
+                    <pre>${r.screenshotB ? `<img src="${getApiUrl('/snapshots/' + r.screenshotB)}" style="max-width:100%;border-radius:6px;margin-bottom:8px">` : ''}${buildDiffHtml(r.b.diff || '')}</pre>
+                </div>
+            </div>
+        </div>
+
+        ${r.screenshotA && r.screenshotB ? `
+        <div id="diff-slider-view" style="display:none">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Drag the slider horizontally to wipe between Older (left) and Newer (right):</div>
+            <div class="slider-wrapper" id="slider-wrapper-el">
+                <img src="${getApiUrl('/snapshots/' + r.screenshotB)}" id="slider-base-img" alt="Newer Screenshot">
+                <div class="slider-overlay" id="slider-overlay-el" style="width:50%">
+                    <img src="${getApiUrl('/snapshots/' + r.screenshotA)}" id="slider-overlay-img" alt="Older Screenshot">
+                </div>
+            </div>
+            <input type="range" class="slider-range" min="0" max="100" value="50" oninput="updateDiffSlider(this.value)">
+        </div>` : ''}
+
+        ${r.diffScreenshot ? `
+        <div id="diff-pixel-view" style="display:none">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Pixel-level differences highlighted in red/pink:</div>
+            <img src="${getApiUrl('/snapshots/' + r.diffScreenshot)}" style="max-width:100%;border-radius:6px;border:1px solid var(--border)">
+        </div>` : ''}
+    `;
+    document.getElementById('diff-modal').classList.add('open');
+}
+
+function closeDiffModal() { document.getElementById('diff-modal').classList.remove('open'); }
+
+function openScreenshot(src) {
+    window.open(getApiUrl(src), '_blank');
+}
+
+// ── Collapsible sections ───────────────────────────────────────────────────
+function toggleCollapse(header) {
+    header.classList.toggle('open');
+    const body = header.nextElementSibling;
+    body.classList.toggle('open');
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────
+function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Search / filter ────────────────────────────────────────────────────────
+function filterTable(query) {
+    filterQuery = query.toLowerCase();
+    applyFilters();
+}
+
+// ── Pause / Resume ─────────────────────────────────────────────────────────
+async function togglePause(id) {
+    const r = await api('POST', `/api/sites/${id}/pause`);
+    if (r.success) {
+        toast(r.paused ? '⏸ Monitoring paused' : '▶ Monitoring resumed', 'info');
+        await loadSites();
+    } else {
+        toast('Error: ' + r.error, 'error');
+    }
+}
+
+// ── Export / Import ────────────────────────────────────────────────────────
+function exportSites() {
+    window.open(getApiUrl('/api/export'), '_blank');
+}
+
+async function importSites(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const payload = json.sites ? json : { sites: json };
+        const r = await api('POST', '/api/import', payload);
+        if (r.success) {
+            toast(`✅ Imported ${r.added} site(s), skipped ${r.skipped}`, 'success');
+            loadSites();
+        } else {
+            toast('Import failed: ' + r.error, 'error');
+        }
+    } catch (e) {
+        toast('Invalid file: ' + e.message, 'error');
+    }
+    event.target.value = ''; // reset file input
+}
+
+// ── Metric & Latency Chart Modal ───────────────────────────────────────────
+let metricsChartInstance = null;
+let currentChartSiteId = null;
+let currentChartSiteName = '';
+let currentChartTab = 'metric'; // 'metric' | 'latency'
+
+function switchChartTab(tab) {
+    currentChartTab = tab;
+    const btnMetric = document.getElementById('btn-chart-metric');
+    const btnLatency = document.getElementById('btn-chart-latency');
+    if (btnMetric) btnMetric.className = tab === 'metric' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    if (btnLatency) btnLatency.className = tab === 'latency' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    if (currentChartSiteId) {
+        renderChartData(currentChartSiteId, currentChartSiteName);
+    }
+}
+
+async function openMetricsChart(siteId, siteName) {
+    currentChartSiteId = siteId;
+    currentChartSiteName = siteName;
+    currentChartTab = 'metric';
+    const btnMetric = document.getElementById('btn-chart-metric');
+    const btnLatency = document.getElementById('btn-chart-latency');
+    if (btnMetric) btnMetric.className = 'btn btn-primary btn-sm';
+    if (btnLatency) btnLatency.className = 'btn btn-secondary btn-sm';
+    document.getElementById('chart-title').textContent = `📈 Trend Tracking — ${siteName}`;
+    document.getElementById('chart-modal').classList.add('open');
+    await renderChartData(siteId, siteName);
+}
+
+async function renderChartData(siteId, siteName) {
+    const canvas = document.getElementById('metrics-canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (metricsChartInstance) {
+        metricsChartInstance.destroy();
+        metricsChartInstance = null;
+    }
+
+    try {
+        if (currentChartTab === 'metric') {
+            document.getElementById('chart-desc').textContent = 'Visualizing numerical/price changes tracked over time';
+            const metrics = await api('GET', `/api/sites/${siteId}/metrics`);
+
+            if (!metrics || metrics.length === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#8892a4';
+                ctx.textAlign = 'center';
+                ctx.fillText('No numerical/price values tracked yet for this page.', canvas.width / 2, 150);
+                return;
+            }
+
+            const labels = metrics.map(m => new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            const data = metrics.map(m => m.value);
+
+            metricsChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Tracked Value',
+                        data,
+                        borderColor: '#ff7700',
+                        backgroundColor: 'rgba(255, 119, 0, 0.15)',
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#ff7700',
+                        borderWidth: 2
+                    }]
+                },
+                options: getChartOptions('Tracked Value')
+            });
+        } else {
+            document.getElementById('chart-desc').textContent = 'Visualizing HTTP response latency (ms) per health check';
+            const latencyData = await api('GET', `/api/sites/${siteId}/latency`);
+
+            if (!latencyData || latencyData.length === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#8892a4';
+                ctx.textAlign = 'center';
+                ctx.fillText('No latency data recorded yet for this page.', canvas.width / 2, 150);
+                return;
+            }
+
+            const labels = latencyData.map(l => new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            const data = latencyData.map(l => l.ms);
+
+            metricsChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Response Time (ms)',
+                        data,
+                        borderColor: '#4f8ef7',
+                        backgroundColor: 'rgba(79, 142, 247, 0.15)',
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#4f8ef7',
+                        borderWidth: 2
+                    }]
+                },
+                options: getChartOptions('Response Latency (ms)')
+            });
+        }
+    } catch (e) {
+        toast('Failed to load chart data: ' + e.message, 'error');
+    }
+}
+
+function getChartOptions(yLabel) {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            x: {
+                ticks: { color: '#8892a4', maxTicksLimit: 8 },
+                grid: { color: 'rgba(100, 116, 139, 0.2)' }
+            },
+            y: {
+                ticks: { color: '#8892a4' },
+                grid: { color: 'rgba(100, 116, 139, 0.2)' },
+                title: { display: true, text: yLabel, color: '#8892a4' }
+            }
+        },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: '#1a1d27',
+                titleColor: '#ff7700',
+                bodyColor: '#e2e8f0',
+                borderColor: '#2e3150',
+                borderWidth: 1
+            }
+        }
+    };
+}
+
+function closeChartModal() {
+    document.getElementById('chart-modal').classList.remove('open');
+}
+
+function escAttr(s) {
+    return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+});
+</script>
+</body>
+</html>
